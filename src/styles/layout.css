@@ -1,0 +1,121 @@
+/* [CSS-02: TABS, CARDS, INPUTS & BUTTONS START]
+       =================================================================== */
+    .tabs {
+      display: flex;
+      background: #ffffff;
+      border-bottom: 2px solid var(--chip-border);
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .tab {
+      flex: 1;
+      padding: 10px 3px;
+      text-align: center;
+      font-weight: 700;
+      font-size: 11px;
+      cursor: pointer;
+      color: #64748b;
+      transition: all 0.18s;
+      position: relative;
+    }
+    .tab.active {
+      color: var(--maroon);
+      border-bottom: 3.5px solid var(--maroon);
+      background: var(--maroon-light);
+      font-weight: 800;
+    }
+    .tab-badge {
+      background: var(--red);
+      color: #fff;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 8px;
+      margin-left: 2px;
+      vertical-align: middle;
+    }
+
+    .section { display: none; padding: 10px; max-width: 620px; margin: auto; }
+    .section.active { display: block; }
+
+    .card {
+      background: #ffffff;
+      padding: 13px;
+      border-radius: 14px;
+      box-shadow: var(--card-shadow);
+      margin-bottom: 12px;
+      border: 1px solid var(--chip-border);
+    }
+    .card h3 {
+      margin-top: 0;
+      color: var(--maroon);
+      font-size: 14px;
+      border-bottom: 1.5px solid var(--maroon-light);
+      padding-bottom: 7px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .mini-galla-strip {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: linear-gradient(90deg, var(--maroon-light), var(--chip-bg));
+      border: 1.5px solid var(--chip-border);
+      border-radius: 11px;
+      padding: 8px 11px;
+      margin-bottom: 10px;
+      font-size: 11.5px;
+      font-weight: 800;
+      color: var(--maroon-dark);
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    label { display: block; font-size: 11.5px; font-weight: 700; margin-top: 8px; color: #334155; }
+    input, select {
+      width: 100%;
+      padding: 9.5px;
+      margin-top: 4px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 14px;
+      background: #f8fafc;
+      color: #0f172a;
+      transition: all 0.15s;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--maroon);
+      background: #ffffff;
+      box-shadow: 0 0 0 3px var(--maroon-light);
+    }
+    .row { display: flex; gap: 8px; align-items: flex-end; }
+    .row > div { flex: 1; }
+
+    button {
+      background: linear-gradient(135deg, var(--maroon), var(--maroon-mid));
+      color: white;
+      border: none;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 10px;
+      font-size: 13px;
+      transition: transform 0.08s, opacity 0.15s;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+    }
+    button:active { transform: scale(0.98); }
+    button.gold { background: linear-gradient(135deg, var(--gold), #fbbf24); color: #111827; font-size: 14px; font-weight: 800; box-shadow: 0 3px 8px rgba(245, 158, 11, 0.3); }
+    button.dark { background: #334155; color: #fff; }
+    button.whatsapp { background: linear-gradient(135deg, #16a34a, #059669); color: #fff; font-size: 13px; font-weight: 800; }
+    button.thermal { background: linear-gradient(135deg, var(--blue), #0369a1); color: #fff; font-size: 13px; }
+    button.callbtn { background: var(--green); color: #fff; font-size: 13px; }
+    button.small { padding: 5px 9px; font-size: 11px; width: auto; margin: 2px; }
+    /* [CSS-02: TABS, CARDS, INPUTS & BUTTONS END] */

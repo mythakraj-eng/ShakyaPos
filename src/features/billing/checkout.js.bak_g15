@@ -1,0 +1,370 @@
+// src/features/billing/checkout.js — Finalize Bill, Receipt Builder & Item Exchange
+// [JS-09C & JS-11: CHECKOUT, INVOICE RECEIPT, RETURNS & EXCHANGE]
+function buildReceiptHTML(saleRecord, svgId) {
+    const dueVal = saleRecord.due || 0;
+    const paidVal = saleRecord.paid !== undefined ? saleRecord.paid : saleRecord.acc;
+    const exCredit = saleRecord.exchangeCredit || 0;
+    const qrAmt = dueVal > 0 ? dueVal : saleRecord.acc;
+    const upiQrSvg = createUpiQrSvg(qrAmt);
+    return `
+      <p class="receipt-didi">✨ दीदी की दुकान ✨</p>
+      <h2>SHAKYA COSMETIC</h2>
+      <p>शाक्या कॉस्मेटिक एवं साड़ी कलेक्शन</p>
+      <p>Ram Dara Road, Niwari Kalan, Etawah | Mob: 8780234760</p>
+      <hr style="border-top:1px dashed #000;">
+      <p style="text-align:left; margin:4px 0;"><b>Bill No:</b> ${saleRecord.invId} ${saleRecord.exchanged ? '(EXCHANGED)' : ''} | <b>Date:</b> ${saleRecord.date}<br><b>Customer:</b> ${saleRecord.cust} (${saleRecord.village || 'Niwari Kalan'})<br><b>Mobile:</b> ${saleRecord.mobile || 'N/A'} | <b>Mode:</b> ${saleRecord.mode}</p>
+      <table>
+        <thead><tr><th>Code</th><th>Item & Qty</th><th style="text-align:right;">Rate (₹)</th></tr></thead>
+        <tbody>
+          ${saleRecord.items.map(i => `<tr style="${i.returned ? 'text-decoration:line-through; opacity:0.6;' : ''}"><td class="code-cell">${i.code}</td><td>${i.cat} (${i.color}) ${i.returned ? '[RETURNED]' : ''}<br><small>Qty: ${i.qty} pcs</small></td><td style="text-align:right;">₹${i.mrp * i.qty}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="receipt-total">TOTAL: ₹${saleRecord.totalMrp} | TAY: ₹${saleRecord.acc}</div>
+      ${exCredit > 0 ? `<p style="font-size:10px; font-weight:bold; color:#000; margin:2px 0;">EXCHANGE CREDIT (${saleRecord.exchangeRef || ''}): -₹${exCredit} | NET: ₹${Math.max(0, saleRecord.acc - exCredit)}</p>` : ''}
+      ${dueVal > 0 ? `<p style="font-size:11px; font-weight:bold; color:#000; margin:2px 0;">JAMA (PAID): ₹${paidVal} | BAAKI UDHAAR: ₹${dueVal}</p>` : ''}
+      ${upiQrSvg ? `<div class="upi-qr-box"><small style="font-size:8.5px; font-weight:bold;">📱 Scan to Pay UPI (₹${qrAmt}):</small>${upiQrSvg}</div>` : ''}
+      <p style="font-size:9px; margin:4px 0;">धन्यवाद! बिकी हुई साड़ी 3 दिन में केवल बदली जाएगी।</p>
+      <div class="barcode-box"><svg id="${svgId}"></svg></div>
+    `;
+  }
+
+  function renderBarcodeOnSvg(svgId, saleRecord) {
+    const secretPayload = `${saleRecord.invId}A${saleRecord.acc}C${saleRecord.totalCost}`;
+    JsBarcode("#" + svgId, secretPayload, {
+      format: "CODE128",
+      width: 1.0,
+      height: 24,
+      displayValue: true,
+      text: `${saleRecord.invId} | DIDI KI DUKAN`,
+      fontSize: 9,
+      margin: 1
+    });
+  }
+
+  function generateNextInvId() {
+    let maxNum = 100;
+    sales.forEach(s => {
+      if (s && s.invId) {
+        const m = String(s.invId).match(/^INV(\d+)$/);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (n > maxNum) maxNum = n;
+        }
+      }
+    });
+    return 'INV' + (maxNum + 1);
+  }
+
+  function finalizeBill() {
+    if (cart.length === 0) {
+      const inp = document.getElementById('scanInput');
+      if (inp) {
+        inp.focus();
+        onScanInputType(inp);
+      }
+      showInlineMsg('billMsg', '⚠️ Pehle Saree Code ya Loose Item jodein!', 'error');
+      return;
+    }
+    const totalMrp = parseFloat(document.getElementById('billTotalMrp').value) || 0;
+    const accRaw = document.getElementById('accInput').value;
+    const acc = accRaw === '' ? totalMrp : Number(accRaw);
+    const paid = document.getElementById('paidInput').value === '' ? 0 : Number(document.getElementById('paidInput').value);
+    const netTarget = Math.max(0, acc - activeExchangeCredit);
+
+    if (!Number.isFinite(acc) || !Number.isFinite(paid) || acc < 0 || paid < 0 || paid > netTarget) {
+      showInlineMsg('billMsg', '⚠️ Galat Rakam: Paid amount Tay Payable (₹' + netTarget + ') se zyada ya minus mein nahi ho sakta!', 'error');
+      return;
+    }
+
+    const due = Math.max(0, netTarget - paid);
+    const mob = document.getElementById('custMobile').value.trim();
+    const custName = document.getElementById('custName').value.trim() || 'Walk-in Customer';
+    const custVil = document.getElementById('custVillage').value.trim() || 'Niwari Kalan';
+    const mode = document.getElementById('payMode').value;
+
+    if (due > 0 && (!mob || mob.length < 10)) {
+      showInlineMsg('billMsg', '⚠️ Udhaar (Due) rakhne ke liye Customer ka 10-ank ka Mobile Number zaroori hai!', 'error');
+      document.getElementById('custMobile').focus();
+      return;
+    }
+
+    let splitCash = 0, splitUpi = 0;
+    if (mode === 'Split') {
+      splitCash = parseFloat(document.getElementById('splitCashInput').value) || 0;
+      splitUpi = parseFloat(document.getElementById('splitUpiInput').value) || 0;
+      if (splitCash < 0 || splitUpi < 0 || Math.abs((splitCash + splitUpi) - paid) > 0.01) {
+        showInlineMsg('billMsg', '⚠️ Split Cash + UPI ka jod Paid amount (₹' + paid + ') ke barabar hona chahiye!', 'error');
+        return;
+      }
+    }
+
+    let totalCost = 0;
+    cart.forEach(i => { totalCost += (i.cost * i.qty); });
+    const invId = generateNextInvId();
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('hi-IN');
+    const isoDate = (window.getLocalIsoDate ? window.getLocalIsoDate(now) : now.toISOString().slice(0, 10));
+
+    const itemsSold = cart.map(i => {
+      if (!i.isLoose) {
+        const st = inventory.find(x => x.code === i.code);
+        if (st) st.qty -= i.qty;
+      }
+      let itemTotalMrp = i.mrp * i.qty;
+      const realSale = Math.round((itemTotalMrp / totalMrp) * acc);
+      return { code: i.code, cat: i.cat, color: i.color, qty: i.qty, mrp: i.mrp, cost: i.cost, realSale, returned: false, isLoose: !!i.isLoose };
+    });
+
+    const vaadaVal = document.getElementById('shBillVaadaDateInput')?.value || '';
+    const saleRecord = {
+      invId, date: dateStr, isoDate,
+      cust: custName,
+      village: custVil,
+      mobile: mob,
+      mode, splitCash, splitUpi,
+      totalMrp, acc, paid, due, totalCost, profit: acc - totalCost,
+      exchangeCredit: activeExchangeCredit,
+      exchangeRef: activeExchangeRefInv,
+      exchanged: false,
+      items: itemsSold
+    };
+
+    saveContactToDirectory(custName, mob, custVil);
+
+    sales.unshift(saleRecord);
+    lastSavedSale = saleRecord;
+    activeExchangeCredit = 0;
+    activeExchangeRefInv = '';
+    playPosBeep(1100, 0.12);
+    syncToCloud();
+
+    const zone = document.getElementById('printZone');
+    document.getElementById('printCard').style.display = 'block';
+    zone.innerHTML = buildReceiptHTML(saleRecord, 'accBarcode');
+    renderBarcodeOnSvg('accBarcode', saleRecord);
+
+    cart = [];
+    renderCart();
+    document.getElementById('custName').value = '';
+    document.getElementById('custVillage').value = '';
+    document.getElementById('custMobile').value = '';
+    document.getElementById('custPrevUdhaarBanner').style.display = 'none';
+
+    if (window.emitPosEvent) window.emitPosEvent('bill:finalized', { saleRecord, due, vaadaVal, mob, custName, custVil });
+    showInlineMsg('billMsg', `🎉 Bill ${invId} ban gaya aur Cloud par sync ho gaya!`, 'success');
+
+    if (printerPrefs.autoPrint) {
+      setTimeout(() => printDirect80mm(), 250);
+    }
+  }
+  // [JS-09: BILLING, CART, HOLD BILL, SPLIT PAY & LOSS ALERT END]
+
+// [JS-11: BILL MODAL, BARCODE VERIFY & EXCHANGE ENGINE START]
+  // =====================================================================
+  function openBillModal(invId) {
+    const s = sales.find(x => x.invId.toUpperCase() === invId.toUpperCase());
+    if (!s) return;
+
+    lastSavedSale = s;
+    const dueVal = s.due || 0;
+    const paidVal = s.paid !== undefined ? s.paid : s.acc;
+
+    const internalBox = document.getElementById('modalInternalBox');
+    if (ownerUnlocked) {
+      internalBox.style.display = 'block';
+      internalBox.innerHTML = `
+        <b>🔒 अंदरूनी हिसाब (${s.invId}) ${s.exchanged ? '<span style="color:red;">[EXCHANGED/RETURNED]</span>' : ''}:</b><br>
+        Sticker MRP: ₹${s.totalMrp} | <b>Tay ACC: ₹${s.acc}</b><br>
+        Mila Cash: <b style="color:green;">₹${paidVal}</b> | Baaki Udhaar: <b style="color:red;">₹${dueVal}</b><br>
+        Kharid: ₹${s.totalCost} | <b style="color:${s.profit < 0 ? 'red' : 'green'};">Net Profit: ₹${s.profit}</b><hr style="margin:5px 0;">
+        <b>Items Asli Bikri Rate:</b><br>
+        ${s.items.map(i => `• <b>${i.code}</b> (${i.color}) [${i.qty} pcs] ${i.returned ? '<b style="color:red;">(Returned)</b>' : ''}: Sticker ₹${i.mrp * i.qty} ➔ Asli Sale <b>₹${i.realSale}</b>`).join('<br>')}
+      `;
+    } else {
+      internalBox.style.display = 'block';
+      internalBox.innerHTML = `<b>🔒 Owner Hisaab Hidden:</b> Asli Kharid aur Profit dekhne ke liye upar <b>🔒 Cost: OFF</b> button dabayein.`;
+    }
+
+    const exSec = document.getElementById('exchangeSectionBox');
+    const exList = document.getElementById('exchangeItemsList');
+    const activeItems = s.items.filter(i => !i.returned);
+    if (s.exchanged || activeItems.length === 0) {
+      exSec.style.display = 'none';
+    } else {
+      exSec.style.display = 'block';
+      exList.innerHTML = s.items.map((item, idx) => {
+        if (item.returned) {
+          return `<div class="exchange-item-row" style="opacity:0.5;"><span>✔ <b>${item.code}</b> (${item.color}) - Already Returned</span></div>`;
+        }
+        return `
+          <label class="exchange-item-row" style="margin:0; cursor:pointer;">
+            <span style="display:flex; align-items:center;">
+              <input type="checkbox" class="ex-item-chk" value="${idx}">
+              <span><b>${item.code}</b> - ${item.cat} (${item.color}) [${item.qty} pcs]</span>
+            </span>
+            <b style="color:var(--maroon);">Tay: ₹${item.realSale}</b>
+          </label>
+        `;
+      }).join('');
+    }
+
+    document.getElementById('modalReceiptBox').innerHTML = `<div id="modalReceiptInner">` + buildReceiptHTML(s, 'modalBarcodeSvg') + `</div>`;
+    document.getElementById('billModal').style.display = 'block';
+    renderBarcodeOnSvg('modalBarcodeSvg', s);
+
+    document.getElementById('printZone').innerHTML = buildReceiptHTML(s, 'printBarcodeSvg');
+    renderBarcodeOnSvg('printBarcodeSvg', s);
+  }
+
+  function closeBillModal() { document.getElementById('billModal').style.display = 'none'; }
+
+  function printFromModal() {
+    closeBillModal();
+    const tabEl = document.getElementById('tab-billing');
+    if (tabEl) switchTab('billing', tabEl);
+    document.getElementById('printCard').style.display = 'block';
+    window.print();
+  }
+
+  function exchangeSelectedItems(sendToNewBill = false) {
+    if (!lastSavedSale || lastSavedSale.exchanged) return;
+    const chks = Array.from(document.querySelectorAll('.ex-item-chk:checked'));
+    if (chks.length === 0) {
+      alert('⚠️ Kripya return karne wali Saree/Item par tick (✔) lagayein!');
+      return;
+    }
+
+    const selectedIndexes = chks.map(c => parseInt(c.value));
+    if (!confirm(`Kya aap chune hue ${selectedIndexes.length} item(s) wapas Stock (+Qty) mein jodna chahte hain?`)) return;
+
+    let refundRealSale = 0;
+    selectedIndexes.forEach(idx => {
+      const soldItem = lastSavedSale.items[idx];
+      if (!soldItem || soldItem.returned) return;
+
+      if (!soldItem.isLoose) {
+        const st = inventory.find(x => x.code === soldItem.code);
+        if (st) {
+          st.qty += soldItem.qty;
+        } else {
+          inventory.push({
+            code: soldItem.code,
+            cat: soldItem.cat,
+            color: soldItem.color,
+            qty: soldItem.qty,
+            cost: soldItem.cost,
+            mrp: soldItem.mrp
+          });
+        }
+      }
+
+      soldItem.returned = true;
+      refundRealSale += (soldItem.realSale || 0);
+      lastSavedSale.totalMrp = Math.max(0, lastSavedSale.totalMrp - (soldItem.mrp * soldItem.qty));
+      lastSavedSale.totalCost = Math.max(0, lastSavedSale.totalCost - (soldItem.cost * soldItem.qty));
+      lastSavedSale.acc = Math.max(0, lastSavedSale.acc - (soldItem.realSale || 0));
+    });
+
+    const remainingActive = lastSavedSale.items.filter(i => !i.returned);
+    if (remainingActive.length === 0) {
+      lastSavedSale.exchanged = true;
+      lastSavedSale.acc = 0;
+      lastSavedSale.paid = 0;
+      lastSavedSale.due = 0;
+      lastSavedSale.profit = 0;
+    } else {
+      lastSavedSale.profit = lastSavedSale.acc - lastSavedSale.totalCost;
+      if (lastSavedSale.due > 0) {
+        const dueReduce = Math.min(lastSavedSale.due, refundRealSale);
+        lastSavedSale.due -= dueReduce;
+        const remRefund = refundRealSale - dueReduce;
+        lastSavedSale.paid = Math.max(0, (lastSavedSale.paid || 0) - remRefund);
+      } else {
+        lastSavedSale.paid = lastSavedSale.acc;
+      }
+    }
+
+    syncToCloud();
+    renderStock();
+    renderStats();
+    renderCustomerSection();
+
+    if (sendToNewBill) {
+      activeExchangeCredit += refundRealSale;
+      activeExchangeRefInv = lastSavedSale.invId;
+      document.getElementById('custName').value = lastSavedSale.cust !== 'Walk-in Customer' ? lastSavedSale.cust : '';
+      document.getElementById('custVillage').value = lastSavedSale.village || '';
+      document.getElementById('custMobile').value = lastSavedSale.mobile || '';
+      closeBillModal();
+      const tabEl = document.getElementById('tab-billing');
+      if (tabEl) switchTab('billing', tabEl);
+      renderCart();
+      showInlineMsg('billMsg', `🔄 ₹${refundRealSale} ka Exchange Credit (${lastSavedSale.invId}) naye bill mein jud gaya! Ab nayi saree scan karein.`, 'success');
+    } else {
+      openBillModal(lastSavedSale.invId);
+      alert(`✅ Chune hue item Stock mein wapas jud gaye! Customer ke ₹${refundRealSale} adjust ho gaye hain.`);
+    }
+  }
+
+  function exchangeReturnBill() {
+    if (!lastSavedSale || lastSavedSale.exchanged) return;
+    if (!confirm(`Kya aap Bill ${lastSavedSale.invId} ki saari Saree/Items wapas Stock (+Qty) mein jodna chahte hain?`)) return;
+
+    lastSavedSale.items.forEach(soldItem => {
+      if (soldItem.returned) return;
+      if (!soldItem.isLoose) {
+        const st = inventory.find(x => x.code === soldItem.code);
+        if (st) {
+          st.qty += soldItem.qty;
+        } else {
+          inventory.push({
+            code: soldItem.code,
+            cat: soldItem.cat,
+            color: soldItem.color,
+            qty: soldItem.qty,
+            cost: soldItem.cost,
+            mrp: soldItem.mrp
+          });
+        }
+      }
+      soldItem.returned = true;
+    });
+
+    lastSavedSale.exchanged = true;
+    lastSavedSale.acc = 0;
+    lastSavedSale.paid = 0;
+    lastSavedSale.due = 0;
+    lastSavedSale.profit = 0;
+
+    syncToCloud();
+    closeBillModal();
+    renderStock();
+    renderStats();
+    renderCustomerSection();
+    alert(`✅ Bill ${lastSavedSale.invId} ke sabhi items wapas Stock mein jud gaye hain!`);
+  }
+
+  function decodeAcc(val, openPopup = false) {
+    const res = document.getElementById('decodeResult');
+    const clean = cleanCode(val);
+    if (!clean) { res.innerHTML = ''; return; }
+
+    const fullMatch = clean.match(/(INV\d+)A(\d+)C(\d+)/);
+    let targetInv = fullMatch ? fullMatch[1] : (clean.startsWith('INV') ? clean : 'INV' + clean);
+
+    const found = sales.find(s => cleanCode(s.invId) === targetInv);
+    if (found) {
+      res.innerHTML = `
+        <div style="background:var(--maroon-light); border:1.5px solid var(--maroon); padding:10px; border-radius:8px;">
+          ✅ <b>${found.invId} (${found.date}) - ${found.cust}</b> ${found.exchanged ? '<b style="color:red;">[EXCHANGED]</b>' : ''}<br>
+          Sticker Bill: ₹${found.totalMrp} | <b style="color:var(--maroon);">ACC: ₹${found.acc}</b> | <b style="color:red;">Udhaar: ₹${found.due || 0}</b><br>
+          ${found.items.map(i => `• ${i.code} (${i.color}) [${i.qty} pcs]: ₹${i.mrp * i.qty} ${i.returned ? '(Returned)' : ''}`).join('<br>')}
+          <button class="small gold" style="margin-top:8px; width:100%;" onclick="openBillModal('${found.invId}')">📄 Bill Kholein / WA Bill Photo / Exchange</button>
+        </div>
+      `;
+      if (openPopup) openBillModal(found.invId);
+    } else {
+      res.innerHTML = `<span style="color:#888;">Bill <b>${targetInv}</b> nahi mila.</span>`;
+    }
+  }
+  // [JS-11: BILL MODAL, BARCODE VERIFY & EXCHANGE ENGINE END]

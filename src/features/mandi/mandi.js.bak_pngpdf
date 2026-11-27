@@ -1,0 +1,824 @@
+// src/features/mandi/mandi.js — Wholesale Mandi & Mahajan Khata
+(function() {
+  window.mandiBills = normalizeArray(JSON.parse(localStorage.getItem("sc_mandi_bills") || "[]"));
+  window.mandiPayments = normalizeArray(JSON.parse(localStorage.getItem("sc_mandi_payments") || "[]"));
+  let activeKhataMode = "GRAHAK";
+  let mandiFilterMode = "ALL";
+  let activeMahajanKey = "";
+  let activeMahajanObj = null;
+  let activeMandiBillId = "";
+
+  function cleanFileSlug(txt) {
+    return String(txt || "Mandi").replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
+  function saveMandiLocal() {
+    localStorage.setItem("sc_mandi_bills", JSON.stringify(window.mandiBills));
+    localStorage.setItem("sc_mandi_payments", JSON.stringify(window.mandiPayments));
+  }
+
+  function compressInvoiceImage(file, callback) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = new Image();
+      img.onload = function() {
+        const maxW = 860, maxH = 1150;
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = Math.round((h * maxW) / w); w = maxW; }
+        if (h > maxH) { w = Math.round((w * maxH) / h); h = maxH; }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL("image/jpeg", 0.62));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function hookFirebaseForMandi() {
+    if (typeof dbRef !== "undefined" && dbRef) {
+      dbRef.child("mandiBills").on("value", (snap) => {
+        const val = snap.val();
+        if (val !== null && val !== undefined) {
+          window.mandiBills = normalizeArray(val);
+          saveMandiLocal();
+          renderMandiKhataUI();
+          refreshStockOriginSelectors();
+        }
+      });
+      dbRef.child("mandiPayments").on("value", (snap) => {
+        const val = snap.val();
+        if (val !== null && val !== undefined) {
+          window.mandiPayments = normalizeArray(val);
+          saveMandiLocal();
+          renderMandiKhataUI();
+        }
+      });
+    }
+
+    if (typeof window.syncToCloud === "function" && !window.syncToCloud._mandiWrapped) {
+      const origSync = window.syncToCloud;
+      const wrappedSync = function() {
+        saveMandiLocal();
+        origSync();
+        if (typeof dbRef !== "undefined" && dbRef) {
+          try {
+            dbRef.child("mandiBills").set(window.mandiBills);
+            dbRef.child("mandiPayments").set(window.mandiPayments);
+          } catch (e) {}
+        }
+      };
+      wrappedSync._mandiWrapped = true;
+      window.syncToCloud = wrappedSync;
+    }
+  }
+
+  function getGoodsForMandiBill(bill) {
+    if (!bill) return [];
+    const map = {};
+    (bill.goods || []).forEach(g => {
+      if (g && g.code) map[g.code] = Object.assign({}, g);
+    });
+    if (typeof inventory !== "undefined" && Array.isArray(inventory)) {
+      inventory.forEach(item => {
+        if (!item) return;
+        const matchById = item.mandiBillId && item.mandiBillId === bill.id;
+        const matchByNo = item.mandiBillNo && bill.billNo &&
+          item.mandiBillNo.toUpperCase() === bill.billNo.toUpperCase() &&
+          (!item.supplier || item.supplier.toUpperCase() === (bill.party || "").toUpperCase());
+        if (matchById || matchByNo) {
+          map[item.code] = {
+            code: item.code,
+            cat: item.cat,
+            color: item.color,
+            qty: item.qty,
+            cost: item.cost,
+            mrp: item.mrp
+          };
+        }
+      });
+    }
+    return Object.values(map);
+  }
+
+  function tagInventoryItemWithOrigin(item, billId, partyName, partyCity, billNo) {
+    if (!item) return;
+    let targetBill = null;
+    if (billId) {
+      targetBill = window.mandiBills.find(b => b && b.id === billId);
+    } else if (partyName || billNo) {
+      targetBill = window.mandiBills.find(b =>
+        b &&
+        (!partyName || (b.party || "").toUpperCase() === partyName.toUpperCase()) &&
+        (!billNo || (b.billNo || "").toUpperCase() === billNo.toUpperCase())
+      );
+    }
+
+    if (targetBill) {
+      item.mandiBillId = targetBill.id;
+      item.supplier = targetBill.party;
+      item.supplierCity = targetBill.city || "Mandi";
+      item.mandiBillNo = targetBill.billNo;
+      item.mandiDate = targetBill.date;
+
+      if (!Array.isArray(targetBill.goods)) targetBill.goods = [];
+      const existingG = targetBill.goods.find(g => g && g.code === item.code);
+      if (existingG) {
+        existingG.qty = item.qty;
+        existingG.cost = item.cost;
+        existingG.mrp = item.mrp;
+        existingG.color = item.color;
+        existingG.cat = item.cat;
+      } else {
+        targetBill.goods.push({
+          code: item.code,
+          cat: item.cat,
+          color: item.color,
+          qty: item.qty,
+          cost: item.cost,
+          mrp: item.mrp
+        });
+      }
+    } else if (partyName || billNo) {
+      item.supplier = partyName || item.supplier || "";
+      item.supplierCity = partyCity || item.supplierCity || "";
+      item.mandiBillNo = billNo || item.mandiBillNo || "";
+      item.mandiDate = item.mandiDate || new Date().toLocaleDateString("hi-IN");
+    }
+  }
+
+  window.refreshStockOriginSelectors = function() {
+    const billSelectHtml = `<option value="">🏢 Link Mandi Bill (Optional)</option>` +
+      window.mandiBills.slice(0, 40).map(b =>
+        `<option value="${b.id}">🏢 ${b.party} (${b.city}) • #${b.billNo}</option>`
+      ).join("");
+
+    const sBillSel = document.getElementById("sMandiBillSelect");
+    if (sBillSel) {
+      const cur = sBillSel.value;
+      sBillSel.innerHTML = billSelectHtml;
+      if (cur) sBillSel.value = cur;
+    }
+
+    const fMahajan = document.getElementById("fMahajan");
+    if (fMahajan) {
+      const curF = fMahajan.value || "ALL";
+      const suppliers = new Set();
+      window.mandiBills.forEach(b => { if (b && b.party) suppliers.add(b.party.trim()); });
+      if (typeof inventory !== "undefined" && Array.isArray(inventory)) {
+        inventory.forEach(i => { if (i && i.supplier) suppliers.add(i.supplier.trim()); });
+      }
+      fMahajan.innerHTML = `<option value="ALL">🏢 All Mahajans / Mandis</option>` +
+        Array.from(suppliers).map(s => `<option value="${s}">🏢 ${s}</option>`).join("");
+      fMahajan.value = Array.from(suppliers).includes(curF) ? curF : "ALL";
+    }
+  };
+
+  // Minimal 1-line origin link in Stock tab (no bulky box!)
+  function injectStockOriginFields() {
+    const stockMsg = document.getElementById("stockMsg");
+    if (stockMsg && !document.getElementById("sMandiBillSelect")) {
+      const row = document.createElement("div");
+      row.style.marginTop = "6px";
+      row.innerHTML = `
+        <select id="sMandiBillSelect" style="margin:0; padding:7px; font-size:12px; background:#f8fafc; border:1px dashed #94a3b8;">
+          <option value="">🏢 Link Mandi Bill / Mahajan (Optional)</option>
+        </select>
+      `;
+      stockMsg.parentElement.insertBefore(row, stockMsg);
+    }
+
+    const editCostEl = document.getElementById("editCost");
+    if (editCostEl && !document.getElementById("editSupplierName")) {
+      const costRow = editCostEl.closest(".row");
+      if (costRow) {
+        const originRow = document.createElement("div");
+        originRow.className = "row";
+        originRow.innerHTML = `
+          <div>
+            <label>🏢 Mahajan / Mandi Party</label>
+            <input type="text" id="editSupplierName" list="mahajanPartyList" placeholder="Ex: Radhika Sarees">
+          </div>
+          <div>
+            <label>🧾 Mandi Bill / Parchi No.</label>
+            <input type="text" id="editSupplierBillNo" placeholder="Ex: B-405">
+          </div>
+        `;
+        costRow.parentElement.insertBefore(originRow, costRow.nextSibling);
+      }
+    }
+
+    const filterBox = document.querySelector("#stock .filter-box");
+    if (filterBox && !document.getElementById("fMahajan")) {
+      const mahajanRow = document.createElement("div");
+      mahajanRow.className = "row";
+      mahajanRow.style.marginTop = "6px";
+      mahajanRow.innerHTML = `
+        <div>
+          <select id="fMahajan" onchange="renderStock()" style="margin-top:0; padding:6px; font-size:12px;">
+            <option value="ALL">🏢 All Mahajans / Mandis</option>
+          </select>
+        </div>
+      `;
+      filterBox.appendChild(mahajanRow);
+    }
+
+    const bulkBtn = document.querySelector("#stock button[onclick*='openBulkStockModal']");
+    if (bulkBtn) {
+      bulkBtn.innerHTML = "📸 AI Mandi & Set Studio";
+    }
+
+    refreshStockOriginSelectors();
+  }
+
+  function hookInventoryFunctions() {
+    if (!window.onPosEvent || hookInventoryFunctions._subscribed) return;
+    hookInventoryFunctions._subscribed = true;
+
+    window.onPosEvent('stock:itemSaved', ({ baseCode, colorRaw }) => {
+      const billId = document.getElementById('sMandiBillSelect')?.value || '';
+      if (baseCode && billId) {
+        const colors = colorRaw ? colorRaw.split(',').map(x => x.trim()).filter(Boolean) : ['Standard'];
+        colors.forEach(color => {
+          let finalCode = baseCode;
+          if (colorRaw) {
+            const upperCol = color.toUpperCase();
+            const suffix = (typeof colorCodeMap === 'object' && colorCodeMap[upperCol]) || cleanCode(upperCol).slice(0, 2);
+            if (!baseCode.endsWith(suffix)) finalCode = baseCode + suffix;
+          }
+          const item = inventory.find(i => i && i.code === finalCode);
+          if (item) tagInventoryItemWithOrigin(item, billId, '', '', '');
+        });
+        renderMandiKhataUI();
+      }
+    });
+
+    window.onPosEvent('stock:editModalOpened', ({ item }) => {
+      injectStockOriginFields();
+      if (item) {
+        const sEl = document.getElementById('editSupplierName');
+        const bEl = document.getElementById('editSupplierBillNo');
+        if (sEl) sEl.value = item.supplier || '';
+        if (bEl) bEl.value = item.mandiBillNo || '';
+      }
+    });
+
+    window.onPosEvent('stock:itemEdited', ({ item }) => {
+      if (item) {
+        const supName = (document.getElementById('editSupplierName')?.value || '').trim();
+        const billNo = (document.getElementById('editSupplierBillNo')?.value || '').trim();
+        tagInventoryItemWithOrigin(item, item.mandiBillId || '', supName, item.supplierCity || '', billNo);
+        renderMandiKhataUI();
+      }
+    });
+
+    window.onPosEvent('stock:rendered', ({ filtered }) => {
+      injectStockOriginFields();
+      const list = Array.isArray(filtered) ? filtered : window.getFilteredInventory();
+      const rows = document.querySelectorAll('#stockTableBody tr');
+      rows.forEach((tr, idx) => {
+        const item = list[idx];
+        if (!item || (!item.supplier && !item.mandiBillNo)) return;
+        const secondTd = tr.querySelector('.stock-meta-badges') || tr.children[0];
+        if (secondTd && !secondTd.querySelector('.origin-tag-pill')) {
+          const badge = document.createElement('div');
+          badge.className = 'origin-tag-pill';
+          badge.innerHTML = '🏢 ' + (item.supplier || 'Mandi') + (item.supplierCity ? ' (' + item.supplierCity + ')' : '') + (item.mandiBillNo ? ' • #' + item.mandiBillNo : '');
+          badge.onclick = (e) => {
+            e.stopPropagation();
+            if (item.mandiBillId) openMandiInvoiceModal(item.mandiBillId);
+            else openEditStockModal(item.code);
+          };
+          secondTd.appendChild(badge);
+        }
+      });
+    });
+  }
+  // DECLUTTERED MANDI KHATA TAB: Only 3 KPIs + 2 Action Buttons + Mahajan Table!
+  function buildMandiKhataDOM() {
+    const custSec = document.getElementById("cust");
+    if (!custSec || document.getElementById("khataModeSwitcher")) return;
+
+    const grahakWrap = document.createElement("div");
+    grahakWrap.id = "grahakKhataWrap";
+    while (custSec.firstChild) {
+      grahakWrap.appendChild(custSec.firstChild);
+    }
+
+    const switcher = document.createElement("div");
+    switcher.id = "khataModeSwitcher";
+    switcher.className = "khata-mode-switcher";
+    switcher.innerHTML = `
+      <button type="button" id="btnModeGrahak" class="khata-mode-btn active" onclick="switchKhataSubMode('GRAHAK')">
+        👥 Grahak Udhaar Khata
+      </button>
+      <button type="button" id="btnModeMandi" class="khata-mode-btn" onclick="switchKhataSubMode('MANDI')">
+        🏢 Mandi / Mahajan Khata <span id="mandiDueBadge" class="tab-badge" style="display:none;">0</span>
+      </button>
+    `;
+
+    const mandiWrap = document.createElement("div");
+    mandiWrap.id = "mandiKhataWrap";
+    mandiWrap.style.display = "none";
+    mandiWrap.innerHTML = `
+      <div class="mandi-stat-strip">
+        <div class="mandi-stat-pill">
+          <span>📦 Kul Mandi Kharid</span>
+          <strong id="mStatPurchase">₹0</strong>
+        </div>
+        <div class="mandi-stat-pill" style="border-left-color:var(--gold);">
+          <span>🚚 Kul Bhaada/Kharch</span>
+          <strong id="mStatBhaada" style="color:#b45309;">₹0</strong>
+        </div>
+        <div class="mandi-stat-pill" style="border-left-color:var(--red);">
+          <span>⚠️ Mahajan Dena Baaki</span>
+          <strong id="mStatDue" style="color:var(--red);">₹0</strong>
+        </div>
+      </div>
+
+      <!-- CLEAN 2-BUTTON LAUNCHPAD (No giant cluttered form!) -->
+      <div class="mandi-launchpad">
+        <button type="button" class="gold mandi-launch-btn" onclick="openBulkStockModal('', 1, true)">
+          📸 AI Scan Mandi Bill
+        </button>
+        <button type="button" class="mandi-launch-btn" onclick="openBulkStockModal('', 1, false)">
+          ➕ Naya Bill / Stock
+        </button>
+      </div>
+
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px; margin-bottom:6px;">
+          <h3 style="margin:0; border:none; padding:0;">🏢 Mahajan Khata & Saved Invoices</h3>
+          <div>
+            <button type="button" id="mFilterAllBtn" class="small" style="background:var(--maroon); color:#fff; margin:0;" onclick="setMandiPartyFilter('ALL')">Sabhi</button>
+            <button type="button" id="mFilterDueBtn" class="small" style="background:#e2e8f0; color:#334155; margin:0;" onclick="setMandiPartyFilter('DUE')">⚠️ Sirf Baaki</button>
+          </div>
+        </div>
+
+        <input type="text" id="mSearchInput" placeholder="🔍 Mahajan, City, Bill No. ya Saree Code (SC101)..." oninput="renderMandiKhataUI()" style="margin-top:2px; padding:8px; font-size:12.5px;">
+
+        <div id="mahajanLedgerDetailBox" style="margin-top:10px; font-size:12px;"></div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Mahajan Party</th>
+              <th>Mandi</th>
+              <th>Kul Maal</th>
+              <th>Dena Baaki</th>
+              <th style="text-align:right;">Invoices</th>
+            </tr>
+          </thead>
+          <tbody id="mahajanTableBody"></tbody>
+        </table>
+      </div>
+    `;
+
+    custSec.appendChild(switcher);
+    custSec.appendChild(grahakWrap);
+    custSec.appendChild(mandiWrap);
+  }
+
+  window.switchKhataSubMode = function(mode) {
+    activeKhataMode = mode;
+    const gWrap = document.getElementById("grahakKhataWrap");
+    const mWrap = document.getElementById("mandiKhataWrap");
+    const bG = document.getElementById("btnModeGrahak");
+    const bM = document.getElementById("btnModeMandi");
+    if (!gWrap || !mWrap) return;
+
+    if (mode === "MANDI") {
+      gWrap.style.display = "none";
+      mWrap.style.display = "block";
+      bG.classList.remove("active");
+      bM.classList.add("active");
+      renderMandiKhataUI();
+    } else {
+      mWrap.style.display = "none";
+      gWrap.style.display = "block";
+      bM.classList.remove("active");
+      bG.classList.add("active");
+    }
+  };
+
+  function getMahajanDirectory() {
+    const dir = {};
+    window.mandiBills.forEach(b => {
+      if (!b) return;
+      const name = (b.party || "Mahajan").trim();
+      const key = (b.mobile && b.mobile.length >= 10) ? b.mobile : name.toUpperCase();
+      if (!dir[key]) {
+        dir[key] = {
+          key,
+          name,
+          city: b.city || "Mandi",
+          mobile: b.mobile || "",
+          totalBase: 0,
+          totalBhaada: 0,
+          totalPaid: 0,
+          due: 0,
+          billsCount: 0
+        };
+      }
+      if (b.city) dir[key].city = b.city;
+      if (b.mobile) dir[key].mobile = b.mobile;
+      dir[key].totalBase += (Number(b.baseAmt) || 0);
+      dir[key].totalBhaada += (Number(b.bhaadaAmt) || 0);
+      dir[key].totalPaid += (Number(b.paidAmt) || 0);
+      dir[key].billsCount += 1;
+    });
+
+    window.mandiPayments.forEach(p => {
+      if (!p) return;
+      const key = p.partyKey || (p.mobile && p.mobile.length >= 10 ? p.mobile : (p.party || "").toUpperCase());
+      if (dir[key]) {
+        dir[key].totalPaid += (Number(p.amount) || 0);
+      }
+    });
+
+    Object.values(dir).forEach(d => {
+      d.due = Math.max(0, d.totalBase - d.totalPaid);
+    });
+
+    return Object.values(dir).sort((a, b) => b.due - a.due);
+  }
+
+  window.openMandiInvoiceModal = function(billId) {
+    const bill = window.mandiBills.find(b => b && b.id === billId);
+    if (!bill) return;
+    activeMandiBillId = bill.id;
+
+    const goodsList = getGoodsForMandiBill(bill);
+    const sheet = document.getElementById("mandiInvoiceSheet");
+    const gross = (Number(bill.baseAmt) || 0) + (Number(bill.bhaadaAmt) || 0);
+
+    sheet.innerHTML = `
+      <div style="text-align:center; border-bottom:1.5px dashed #0f172a; padding-bottom:7px; margin-bottom:8px;">
+        <div style="font-size:11px; font-weight:900; color:var(--maroon);">✨ दीदी की दुकान • SHAKYA COSMETIC ✨</div>
+        <div style="font-size:15px; font-weight:900;">🏢 MANDI PURCHASE INVOICE</div>
+        <div style="font-size:10.5px; color:#475569;">Saved Wholesale Bill & Goods Origin Record</div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:4px; background:#f8fafc; padding:7px 9px; border-radius:8px; border:1px solid #cbd5e1; margin-bottom:8px;">
+        <div>
+          <b>🏢 Mahajan:</b> ${bill.party}<br>
+          <b>📍 Mandi/City:</b> ${bill.city || 'Mandi'}<br>
+          <b>📞 Mobile:</b> ${bill.mobile || 'N/A'}
+        </div>
+        <div style="text-align:right;">
+          <b>🧾 Bill No:</b> <span style="color:var(--maroon); font-weight:900;">#${bill.billNo}</span><br>
+          <b>📅 Date:</b> ${bill.date}<br>
+          <b>📦 Kul Nag:</b> ${bill.totalPcs} Pcs
+        </div>
+      </div>
+
+      <div style="font-weight:800; color:var(--maroon-dark); font-size:11.5px; margin-bottom:4px;">
+        📦 Is Bill Se Aaya Hua Stock / Goods (${goodsList.length} Items Linked):
+      </div>
+      ${goodsList.length > 0 ? `
+        <table style="margin-top:2px; font-size:11px;">
+          <thead>
+            <tr><th>Code</th><th>Item & Colour</th><th>Cost</th><th>MRP</th><th>Qty</th></tr>
+          </thead>
+          <tbody>
+            ${goodsList.map(g => `
+              <tr>
+                <td class="code-cell">${g.code}</td>
+                <td>${g.cat} (${g.color})</td>
+                <td>₹${g.cost}</td>
+                <td><b>₹${g.mrp}</b></td>
+                <td>${g.qty}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div style="padding:8px; background:#f1f5f9; border-radius:7px; color:#64748b; font-size:11px; text-align:center;">Abhi is bill se individual Saree Codes link nahi hain. Neeche <b>"Is Bill Mein Aur Maal Jodein"</b> button dabakar link karein.</div>`}
+
+      <div style="margin-top:9px; border-top:1.5px solid #0f172a; padding-top:7px; display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:11.5px;">
+        <div>
+          Mandi Maal Bill: <b>₹${bill.baseAmt}</b><br>
+          🚚 Bhaada/Kharch: <b>+₹${bill.bhaadaAmt}</b> (+₹${bill.bhaadaPerPc || 0}}/pc)<br>
+          🏷️ <b>Kul Landing: ₹${gross}</b> (Avg ₹${bill.avgLandingPerPc}/pc)
+        </div>
+        <div style="text-align:right;">
+          Paid (${bill.paidMode}): <b style="color:var(--green);">₹${bill.paidAmt}</b><br>
+          Mahajan Baaki Due: <b style="color:var(--red); font-size:13px;">₹${bill.dueAmt}</b>
+        </div>
+      </div>
+    `;
+
+    const photoView = document.getElementById("mandiModalPhotoView");
+    const dlWrap = document.getElementById("mandiModalPhotoDlWrap");
+    if (bill.parchiPhoto) {
+      photoView.innerHTML = `<img src="${bill.parchiPhoto}" style="width:100%; max-height:260px; object-fit:contain; border-radius:8px; border:1.5px solid #0f172a; cursor:pointer;" onclick="window.open(this.src, '_blank')">`;
+      if (dlWrap) dlWrap.style.display = "block";
+    } else {
+      photoView.innerHTML = `<div style="color:#64748b; font-size:11px; padding:6px;">Koi kagaz parchi photo attach nahi hai.</div>`;
+      if (dlWrap) dlWrap.style.display = "none";
+    }
+
+    document.getElementById("mandiInvoiceModal").style.display = "flex";
+  };
+
+  window.closeMandiInvoiceModal = function() {
+    document.getElementById("mandiInvoiceModal").style.display = "none";
+  };
+
+  window.onModalInvoicePhotoSelected = function(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file || !activeMandiBillId) return;
+    const bill = window.mandiBills.find(b => b && b.id === activeMandiBillId);
+    if (!bill) return;
+    compressInvoiceImage(file, (dataUrl) => {
+      bill.parchiPhoto = dataUrl;
+      if (typeof syncToCloud === "function") syncToCloud();
+      openMandiInvoiceModal(bill.id);
+      renderMandiKhataUI();
+    });
+  };
+
+  window.downloadOriginalMandiPhoto = function() {
+    const bill = window.mandiBills.find(b => b && b.id === activeMandiBillId);
+    if (!bill || !bill.parchiPhoto) return;
+    const a = document.createElement("a");
+    a.href = bill.parchiPhoto;
+    a.download = "Mandi_Parchi_" + cleanFileSlug(bill.party) + "_" + cleanFileSlug(bill.billNo) + ".jpg";
+    a.click();
+  };
+
+  window.downloadDigitalMandiInvoice = function() {
+    const bill = window.mandiBills.find(b => b && b.id === activeMandiBillId);
+    const sheet = document.getElementById("mandiInvoiceSheet");
+    if (!bill || !sheet || typeof html2canvas === "undefined") return;
+    html2canvas(sheet, { scale: 2.2, backgroundColor: "#ffffff" }).then(canvas => {
+      const a = document.createElement("a");
+      a.href = canvas.toDataURL("image/png");
+      a.download = "Shakya_Mandi_Invoice_" + cleanFileSlug(bill.party) + "_" + cleanFileSlug(bill.billNo) + ".png";
+      a.click();
+    });
+  };
+
+  window.shareDigitalMandiInvoiceWA = function() {
+    const bill = window.mandiBills.find(b => b && b.id === activeMandiBillId);
+    const sheet = document.getElementById("mandiInvoiceSheet");
+    if (!bill || !sheet) return;
+    const goodsList = getGoodsForMandiBill(bill);
+    const goodsTxt = goodsList.map(g => "• " + g.code + " (" + g.cat + " - " + g.color + "): " + g.qty + " pcs @ Cost ₹" + g.cost + " / MRP ₹" + g.mrp).join("\n");
+    const caption = "🏢 *MANDI PURCHASE INVOICE (दीदी की दुकान)*\n• *Mahajan:* " + bill.party + " (" + bill.city + ")\n• *Bill No:* #" + bill.billNo + " | *Date:* " + bill.date + "\n• *Maal Bill:* ₹" + bill.baseAmt + " | *Bhaada:* ₹" + bill.bhaadaAmt + "\n• *Paid:* ₹" + bill.paidAmt + " | *Baaki Due:* ₹" + bill.dueAmt + (goodsTxt ? "\n*Linked Goods:*\n" + goodsTxt : "");
+    const targetPhone = bill.mobile ? "91" + bill.mobile : "";
+    window.open("https://wa.me/" + targetPhone + "?text=" + encodeURIComponent(caption), "_blank");
+  };
+
+  window.addMoreGoodsToCurrentMandiBill = function() {
+    const billId = activeMandiBillId;
+    closeMandiInvoiceModal();
+    if (typeof openBulkStockModal === "function") {
+      openBulkStockModal(billId, 2, false);
+    }
+  };
+
+  window.setMandiPartyFilter = function(mode) {
+    mandiFilterMode = mode;
+    const bAll = document.getElementById("mFilterAllBtn");
+    const bDue = document.getElementById("mFilterDueBtn");
+    if (bAll) {
+      bAll.style.background = mode === "ALL" ? "var(--maroon)" : "#e2e8f0";
+      bAll.style.color = mode === "ALL" ? "#fff" : "#334155";
+    }
+    if (bDue) {
+      bDue.style.background = mode === "DUE" ? "var(--maroon)" : "#e2e8f0";
+      bDue.style.color = mode === "DUE" ? "#fff" : "#334155";
+    }
+    renderMandiKhataUI();
+  };
+
+  window.openMandiPartyDetail = function(partyKey) {
+    const list = getMahajanDirectory();
+    const party = list.find(d => d.key === partyKey);
+    const box = document.getElementById("mahajanLedgerDetailBox");
+    if (!party || !box) return;
+
+    activeMahajanKey = party.key;
+    activeMahajanObj = party;
+
+    const bills = window.mandiBills.filter(b => {
+      const k = (b.mobile && b.mobile.length >= 10) ? b.mobile : (b.party || "").trim().toUpperCase();
+      return k === partyKey;
+    });
+
+    const payments = window.mandiPayments.filter(p => p.partyKey === partyKey);
+
+    box.innerHTML = `
+      <div style="background:var(--maroon-light); border:1.5px solid var(--maroon); padding:10px; border-radius:10px; margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <b>🏢 ${party.name} (${party.city})</b>
+          <button type="button" class="small dark" style="margin:0; padding:2px 7px;" onclick="document.getElementById('mahajanLedgerDetailBox').innerHTML=''">✕ Band</button>
+        </div>
+        <div style="margin-top:4px; font-size:11.5px;">
+          📱 Mob: <b>${party.mobile || 'N/A'}</b> | 📦 Bills: <b>${party.billsCount}</b><br>
+          💰 Kul Maal: <b>₹${party.totalBase}</b> | 🚚 Kul Bhaada: <b>₹${party.totalBhaada}</b><br>
+          ✅ Kul Diya: <b style="color:var(--green);">₹${party.totalPaid}</b> | ⚠️ Baaki Dena: <b style="color:var(--red);">₹${party.due}</b>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          ${party.due > 0 ? `<div><button type="button" class="gold small" style="width:100%; margin:0;" onclick="openMandiPayModal('${party.key}')">💸 Payment Darj Karein</button></div>` : ''}
+          ${party.mobile ? `<div><button type="button" class="whatsapp small" style="width:100%; margin:0;" onclick="sendMahajanWhatsAppSummary('${party.key}')">💬 WA Hisaab Bhejein</button></div>` : ''}
+        </div>
+        <hr style="margin:7px 0;">
+        <b>🧾 Saved Mandi Invoices (Tap to Open):</b>
+        ${bills.map(b => {
+          const linkedCount = getGoodsForMandiBill(b).length;
+          return `
+            <div style="margin-top:5px; padding:7px 8px; background:#fff; border-radius:8px; border:1.5px solid #cbd5e1; display:flex; justify-content:space-between; align-items:center; gap:6px;">
+              <div style="cursor:pointer; flex:1;" onclick="openMandiInvoiceModal('${b.id}')">
+                <b style="color:var(--maroon); text-decoration:underline;">🧾 Bill #${b.billNo}</b> (${b.date}) ${b.parchiPhoto ? '📸' : ''}<br>
+                <small style="color:#334155;">Maal: ₹${b.baseAmt} | Bhaada: ₹${b.bhaadaAmt} • <b>📦 ${linkedCount} Items</b></small>
+              </div>
+              <div style="display:flex; gap:4px; align-items:center;">
+                <button type="button" class="btn-action" style="background:var(--maroon);color:#fff;padding:5px 8px;" onclick="openMandiInvoiceModal('${b.id}')">📄 Invoice</button>
+                <button type="button" class="btn-action btn-del" onclick="deleteMandiBill('${b.id}')">✕</button>
+              </div>
+            </div>
+          `;
+        }).join("") || '<div style="color:#64748b;">Koi bill nahi</div>'}
+        ${payments.length > 0 ? `
+          <hr style="margin:7px 0;">
+          <b style="color:var(--green);">💸 Mahajan Payment Passbook:</b>
+          ${payments.map(p => `
+            <div style="margin-top:3px; font-size:11px; color:#0f172a;">
+              ✅ <b>${p.date}</b>: <b>₹${p.amount}</b> (${p.mode}) ${p.note ? '• ' + p.note : ''}
+            </div>
+          `).join("")}
+        ` : ''}
+      </div>
+    `;
+  };
+
+  window.deleteMandiBill = function(billId) {
+    if (!confirm("Kya aap is Mandi Bill ko hatana chahte hain?")) return;
+    if (window.emitPosEvent) {
+      window.emitPosEvent('mandi:billDeleted', { billId });
+    } else if (typeof markTombstone === 'function') {
+      markTombstone('mandiBills', billId);
+    }
+    window.mandiBills = window.mandiBills.filter(b => b && b.id !== billId);
+    if (typeof syncToCloud === "function") syncToCloud();
+    renderMandiKhataUI();
+    refreshStockOriginSelectors();
+    if (activeMahajanKey) openMandiPartyDetail(activeMahajanKey);
+  };
+
+  window.openMandiPayModal = function(partyKey) {
+    const list = getMahajanDirectory();
+    const party = list.find(d => d.key === partyKey);
+    if (!party) return;
+    activeMahajanKey = party.key;
+    activeMahajanObj = party;
+    document.getElementById("mandiPayPartyInfo").innerText = party.name + " (" + party.city + ") — Baaki Dena: ₹" + party.due;
+    document.getElementById("mandiPayAmtInput").value = party.due;
+    document.getElementById("mandiPayNoteInput").value = "";
+    document.getElementById("mandiPayModal").style.display = "flex";
+  };
+
+  window.closeMandiPayModal = function() {
+    document.getElementById("mandiPayModal").style.display = "none";
+  };
+
+  window.confirmMahajanPayment = function(sendWa = false) {
+    const amt = parseFloat(document.getElementById("mandiPayAmtInput")?.value) || 0;
+    const mode = document.getElementById("mandiPayModeInput")?.value || "UPI / PhonePe";
+    const note = (document.getElementById("mandiPayNoteInput")?.value || "").trim();
+    if (amt <= 0 || !activeMahajanObj) return;
+
+    const now = new Date();
+    const newRemaining = Math.max(0, activeMahajanObj.due - amt);
+    window.mandiPayments.unshift({
+      id: "MP" + Date.now().toString().slice(-6),
+      date: now.toLocaleDateString("hi-IN"),
+      isoDate: now.toISOString().slice(0, 10),
+      partyKey: activeMahajanObj.key,
+      party: activeMahajanObj.name,
+      city: activeMahajanObj.city,
+      mobile: activeMahajanObj.mobile,
+      amount: amt,
+      mode,
+      note,
+      remainingDue: newRemaining
+    });
+
+    if (typeof playPosBeep === "function") playPosBeep(1000, 0.08);
+    if (typeof syncToCloud === "function") syncToCloud();
+    closeMandiPayModal();
+    renderMandiKhataUI();
+    openMandiPartyDetail(activeMahajanObj.key);
+
+    if (sendWa && activeMahajanObj.mobile && activeMahajanObj.mobile.length >= 10) {
+      const msg = "🙏 नमस्कार *" + activeMahajanObj.name + "* जी (" + activeMahajanObj.city + "),\n*SHAKYA COSMETIC & SAREE (निवाड़ी कलां, इटावा)* की तरफ से आज आपके खाते में *₹" + amt + "* (" + mode + (note ? " - " + note : "") + ") का भुगतान भेजा गया है।\nअब हमारा बाकी हिसाब: *₹" + newRemaining + "* है। धन्यवाद!";
+      window.open("https://wa.me/91" + activeMahajanObj.mobile + "?text=" + encodeURIComponent(msg), "_blank");
+    }
+  };
+
+  window.sendMahajanWhatsAppSummary = function(partyKey) {
+    const list = getMahajanDirectory();
+    const party = list.find(d => d.key === partyKey);
+    if (!party || !party.mobile) return;
+    const msg = "🙏 नमस्कार *" + party.name + "* जी (" + party.city + "),\n*SHAKYA COSMETIC (दीदी की दुकान, निवाड़ी कलां)* के रिकॉर्ड अनुसार:\n• कुल बिल खरीदारी: *₹" + party.totalBase + "* (" + party.billsCount + " Bills)\n• कुल जमा भुगतान: *₹" + party.totalPaid + "*\n• बाकी देय राशि (Balance): *₹" + party.due + "*\nधन्यवाद!";
+    window.open("https://wa.me/91" + party.mobile + "?text=" + encodeURIComponent(msg), "_blank");
+  };
+
+  window.renderMandiKhataUI = function() {
+    buildMandiKhataDOM();
+    injectStockOriginFields();
+    const allParties = getMahajanDirectory();
+
+    let sumBase = 0, sumBhaada = 0, sumDue = 0, duePartiesCount = 0;
+    allParties.forEach(p => {
+      sumBase += p.totalBase;
+      sumBhaada += p.totalBhaada;
+      sumDue += p.due;
+      if (p.due > 0) duePartiesCount++;
+    });
+
+    const elP = document.getElementById("mStatPurchase");
+    const elB = document.getElementById("mStatBhaada");
+    const elD = document.getElementById("mStatDue");
+    const badge = document.getElementById("mandiDueBadge");
+    if (elP) elP.innerText = "₹" + sumBase;
+    if (elB) elB.innerText = "₹" + sumBhaada;
+    if (elD) elD.innerText = "₹" + sumDue;
+    if (badge) {
+      badge.style.display = duePartiesCount > 0 ? "inline-block" : "none";
+      badge.innerText = duePartiesCount;
+    }
+
+    const dl = document.getElementById("mahajanPartyList");
+    if (dl) {
+      dl.innerHTML = allParties.map(p => `<option value="${p.name}">${p.city} • Due: ₹${p.due}</option>`).join("");
+    }
+
+    const q = (document.getElementById("mSearchInput")?.value || "").trim().toUpperCase();
+    let filtered = allParties;
+    if (mandiFilterMode === "DUE") {
+      filtered = filtered.filter(p => p.due > 0);
+    }
+    if (q) {
+      filtered = filtered.filter(p => {
+        const matchParty = p.name.toUpperCase().includes(q) || p.city.toUpperCase().includes(q) || (p.mobile && p.mobile.includes(q));
+        if (matchParty) return true;
+        return window.mandiBills.some(b => {
+          const k = (b.mobile && b.mobile.length >= 10) ? b.mobile : (b.party || "").trim().toUpperCase();
+          if (k !== p.key) return false;
+          if ((b.billNo || "").toUpperCase().includes(q)) return true;
+          return getGoodsForMandiBill(b).some(g => g.code.toUpperCase().includes(q));
+        });
+      });
+    }
+
+    const tbody = document.getElementById("mahajanTableBody");
+    if (!tbody) return;
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:14px; color:#64748b;">Koi Mahajan record nahi hai. Upar <b>"📸 AI Scan Mandi Bill"</b> button dabayein!</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(p => `
+      <tr>
+        <td style="cursor:pointer;" onclick="openMandiPartyDetail('${p.key}')">
+          <b style="color:var(--maroon-dark); text-decoration:underline;">${p.name}</b><br>
+          <small style="color:#64748b;">${p.mobile || 'No Mob'} • ${p.billsCount} Bills</small>
+        </td>
+        <td>${p.city}</td>
+        <td>₹${p.totalBase}<br><small style="color:#b45309;">🚚 +₹${p.totalBhaada}</small></td>
+        <td><b style="color:${p.due > 0 ? 'var(--red)' : 'var(--green)'};">₹${p.due}</b></td>
+        <td style="text-align:right; white-space:nowrap;">
+          <div class="action-group">
+            ${p.mobile ? `<button type="button" class="btn-action" style="background:var(--green);color:#fff;" onclick="callCustomerNumber('${p.mobile}')">📞</button>` : ''}
+            ${p.due > 0 ? `<button type="button" class="btn-action" style="background:var(--gold);color:#111827;" onclick="openMandiPayModal('${p.key}')">💸</button>` : ''}
+            <button type="button" class="btn-action" style="background:var(--maroon);color:#fff;" onclick="openMandiPartyDetail('${p.key}')">🧾 Bills</button>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+  };
+
+  window.addEventListener("DOMContentLoaded", () => {
+    buildMandiKhataDOM();
+    injectStockOriginFields();
+    hookInventoryFunctions();
+    hookFirebaseForMandi();
+    renderMandiKhataUI();
+    if (typeof renderStock === "function") renderStock();
+  });
+  setTimeout(() => {
+    buildMandiKhataDOM();
+    injectStockOriginFields();
+    hookInventoryFunctions();
+    hookFirebaseForMandi();
+    renderMandiKhataUI();
+    if (typeof renderStock === "function") renderStock();
+  }, 160);
+})();

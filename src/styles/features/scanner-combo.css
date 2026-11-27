@@ -1,0 +1,567 @@
+/* Extracted from <!-- === SHAKYA COSMETIC: FIXED QR SCANNER, QUEUE SCAN MODE & COMBO === --> */
+/* 1. Ultra-Crisp QR Code Box for Thermal & Browser Printing */
+  .sh-qr-tag-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin: 5px auto 2px auto;
+    padding: 5px 8px;
+    border: 2px solid #000000;
+    border-radius: 8px;
+    background: #ffffff;
+    max-width: 265px;
+  }
+  .sh-qr-svg-box {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    padding: 3px;
+    border: 1.5px solid #000000;
+    border-radius: 5px;
+    line-height: 0;
+    flex-shrink: 0;
+  }
+  .sh-qr-svg-box svg {
+    display: block;
+    shape-rendering: crispEdges;
+  }
+  .sh-qr-meta-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    text-align: left;
+  }
+  .sh-qr-sku-code {
+    font-size: 18px;
+    font-weight: 900;
+    color: #000000;
+    letter-spacing: 1px;
+    line-height: 1.1;
+    font-family: 'Arial Black', Impact, system-ui, monospace;
+  }
+  .sh-qr-fast-badge {
+    display: inline-block;
+    margin-top: 3px;
+    font-size: 9px;
+    font-weight: 900;
+    color: #ffffff;
+    background: #000000;
+    padding: 1.5px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+  }
+
+  /* Batch Tag QR Layout */
+  .sh-batch-qr-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 3px;
+    padding-top: 3px;
+    border-top: 1px dashed #000000;
+  }
+  .sh-batch-qr-box {
+    background: #ffffff;
+    padding: 2px;
+    border: 1px solid #000000;
+    border-radius: 4px;
+    line-height: 0;
+  }
+  .sh-batch-qr-box svg {
+    display: block;
+    shape-rendering: crispEdges;
+  }
+  .sh-batch-sku {
+    font-size: 13px;
+    font-weight: 900;
+    color: #000000;
+    letter-spacing: 0.6px;
+    font-family: 'Arial Black', system-ui, monospace;
+  }
+
+  /* Pure Silent QR on Bill Receipt (Only QR, zero text!) */
+  .sh-bill-qr-only {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 4px auto 2px auto;
+    padding: 3px;
+    background: #ffffff;
+    line-height: 0;
+  }
+  .sh-bill-qr-only svg {
+    display: block;
+    shape-rendering: crispEdges;
+  }
+
+  /* Jumbo Rack Hero Banner on Tags (31px Bold) */
+  .tag-rack-hero, .tag-rack-pill {
+    display: flex !important;
+    align-items: stretch !important;
+    justify-content: space-between !important;
+    border: 3.5px solid #000000 !important;
+    border-radius: 9px !important;
+    margin: 6px auto 5px auto !important;
+    width: 94% !important;
+    max-width: 265px !important;
+    overflow: hidden !important;
+    background: #fde047 !important;
+    box-shadow: 0 3px 0 #000000 !important;
+    padding: 0 !important;
+    cursor: pointer;
+  }
+  .tag-rack-hero-left {
+    background: #000000 !important;
+    color: #ffffff !important;
+    padding: 5px 10px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    text-align: center !important;
+    min-width: 80px !important;
+    border-right: 3px solid #000000 !important;
+  }
+  .tag-rack-hero-left span.rk-sub {
+    font-size: 8.5px !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.5px !important;
+    color: #fde047 !important;
+    line-height: 1.1 !important;
+  }
+  .tag-rack-hero-left strong.rk-lbl {
+    font-size: 15px !important;
+    font-weight: 900 !important;
+    letter-spacing: 1.4px !important;
+    color: #ffffff !important;
+    line-height: 1.15 !important;
+  }
+  .tag-rack-hero-right {
+    flex: 1 !important;
+    background: #fde047 !important;
+    color: #000000 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 3px 10px !important;
+    font-size: 31px !important;
+    font-weight: 900 !important;
+    letter-spacing: 2px !important;
+    line-height: 1.05 !important;
+    font-family: 'Arial Black', Impact, system-ui, sans-serif !important;
+  }
+
+  /* ==========================================================================
+     2. REIMAGINED ULTRA-SMOOTH 120FPS GPU HOLOGRAPHIC PRISM SCANNER
+     Zero CPU reflows (only translate3d / scale3d / opacity on compositor thread!)
+     ========================================================================== */
+  #reader__scan_region > div[style*="border"],
+  #reader__dashboard_section_csr,
+  #reader__header_message {
+    display: none !important;
+  }
+  /* Remove Html5Qrcode's heavy shaded borders that cause overdraw lag */
+  #reader__scan_region video {
+    border-radius: 14px !important;
+  }
+  #reader {
+    position: relative !important;
+    border: 1.5px solid rgba(56, 189, 248, 0.55) !important;
+    border-radius: 16px !important;
+    overflow: hidden !important;
+    background: #020617 !important;
+    transform: translateZ(0);
+  }
+
+  #shHoloOverlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 16px;
+    contain: layout paint style;
+  }
+
+  /* Clean, Minimal, Glassmorphic Center Prism Box (196x196) */
+  .sh-prism-stage {
+    position: relative;
+    width: 196px;
+    height: 196px;
+    border-radius: 26px;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+    animation: shPrismBreathe 2.8s ease-in-out infinite;
+  }
+  @keyframes shPrismBreathe {
+    0%, 100% { transform: translate3d(0, 0, 0) scale3d(1, 1, 1); }
+    50%      { transform: translate3d(0, 0, 0) scale3d(1.025, 1.025, 1); }
+  }
+
+  /* Crisp Vector SVG Holographic Gradient Corners */
+  .sh-prism-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* Inner Clip Window for the Silky 120FPS Gliding Holographic Light Curtain */
+  .sh-prism-window {
+    position: absolute;
+    inset: 8px;
+    border-radius: 20px;
+    overflow: hidden;
+    transform: translateZ(0);
+  }
+
+  /* Silky GPU-Accelerated Gliding Light Curtain (uses ONLY translate3d, never top%!) */
+  .sh-prism-curtain {
+    position: absolute;
+    top: -64px;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: linear-gradient(
+      180deg,
+      rgba(56, 189, 248, 0) 0%,
+      rgba(168, 85, 247, 0.10) 35%,
+      rgba(56, 189, 248, 0.28) 82%,
+      rgba(52, 211, 153, 0.85) 97%,
+      #ffffff 100%
+    );
+    border-bottom: 2px solid #a7f3d0;
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+    animation: shPrismGlide 1.65s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite alternate;
+  }
+  @keyframes shPrismGlide {
+    0%   { transform: translate3d(0, 12px, 0); }
+    100% { transform: translate3d(0, 224px, 0); }
+  }
+
+  /* Subtle Iridescent Shimmer Pill at bottom of camera */
+  .sh-prism-pill {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translate3d(-50%, 0, 0);
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    border-radius: 999px;
+    padding: 3.5px 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    font-weight: 800;
+    color: #e0f2fe;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .sh-prism-orb {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #38bdf8, #34d399);
+  }
+
+  /* Instant Expanding Ripple Ring when a QR Code is Scanned */
+  .sh-prism-ripple {
+    position: absolute;
+    inset: 0;
+    border-radius: 26px;
+    border: 2.5px solid #34d399;
+    opacity: 0;
+    pointer-events: none;
+    will-change: transform, opacity;
+  }
+  #shHoloOverlay.holo-lock-hit .sh-prism-ripple {
+    animation: shPrismShockwave 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  @keyframes shPrismShockwave {
+    0%   { transform: scale3d(0.92, 0.92, 1); opacity: 1; border-color: #fde047; }
+    100% { transform: scale3d(1.26, 1.26, 1); opacity: 0; border-color: #34d399; }
+  }
+  #shHoloOverlay.holo-lock-hit .sh-prism-stage {
+    transform: translate3d(0, 0, 0) scale3d(0.95, 0.95, 1);
+    transition: transform 0.12s ease-out;
+  }
+  #shHoloOverlay.holo-lock-hit .sh-prism-pill {
+    background: rgba(6, 95, 70, 0.92);
+    border-color: #fde047;
+    color: #fde047;
+  }
+
+  /* ==========================================================================
+     3. QUEUE SCANNING MODE UI (Inside #scannerModal & Billing Button)
+     ========================================================================== */
+  #scannerModal {
+    overflow-y: auto !important;
+    padding: 12px 10px 24px 10px !important;
+  }
+  .sh-qscan-mode-bar {
+    max-width: 400px;
+    margin: 4px auto 8px auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border: 1.5px solid #38bdf8;
+    border-radius: 10px;
+    padding: 7px 10px;
+    color: #ffffff;
+  }
+  .sh-qscan-switch-btn {
+    margin: 0 !important;
+    padding: 6px 11px !important;
+    font-size: 11.5px !important;
+    font-weight: 900 !important;
+    border-radius: 8px !important;
+    border: 1.5px solid #fde047 !important;
+    background: linear-gradient(135deg, #059669, #047857) !important;
+    color: #ffffff !important;
+    width: auto !important;
+  }
+  .sh-qscan-switch-btn.single-mode {
+    background: #334155 !important;
+    border-color: #94a3b8 !important;
+    color: #e2e8f0 !important;
+  }
+
+  /* Live Scanned Queue Tray inside Scanner Modal */
+  #shScannerQueueTray {
+    max-width: 400px;
+    margin: 8px auto 0 auto;
+    background: #0f172a;
+    border: 1.5px solid #38bdf8;
+    border-radius: 12px;
+    overflow: hidden;
+    text-align: left;
+  }
+  .sh-sq-header {
+    background: linear-gradient(135deg, #0284c7 0%, #059669 100%);
+    color: #ffffff;
+    padding: 7px 11px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 900;
+  }
+  .sh-sq-list {
+    max-height: 155px;
+    overflow-y: auto;
+    padding: 6px 8px;
+  }
+  .sh-sq-empty {
+    text-align: center;
+    padding: 12px 8px;
+    color: #94a3b8;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+  .sh-sq-item {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-left: 4px solid #38bdf8;
+    border-radius: 8px;
+    padding: 6px 9px;
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    color: #ffffff;
+  }
+  .sh-sq-qty-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .sh-sq-qbtn {
+    width: 26px !important;
+    height: 26px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 6px !important;
+    font-size: 14px !important;
+    font-weight: 900 !important;
+    background: #334155 !important;
+    color: #ffffff !important;
+    border: 1px solid #64748b !important;
+  }
+  .sh-sq-qbtn.plus {
+    background: #059669 !important;
+    border-color: #34d399 !important;
+  }
+
+  #shScanLiveFlashBanner {
+    display: none;
+    max-width: 400px;
+    margin: 6px auto;
+    padding: 7px 10px;
+    border-radius: 9px;
+    font-size: 12px;
+    font-weight: 900;
+    text-align: center;
+  }
+
+  /* 4. Shaadi / Tyohaar Combo & Lagan Package Builder Modal */
+  #shComboModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.85);
+    z-index: 1580;
+    padding: 10px;
+    align-items: center;
+    justify-content: center;
+  }
+  .sh-combo-dialog {
+    width: 100%;
+    max-width: 480px;
+    max-height: 92dvh;
+    background: #fffbeb;
+    border: 2.5px solid #d97706;
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sh-cb-header {
+    background: linear-gradient(135deg, #7c2d12 0%, #991b1b 55%, #b45309 100%);
+    color: #ffffff;
+    padding: 11px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #fde047;
+  }
+  .sh-cb-title {
+    font-size: 14.5px;
+    font-weight: 900;
+    color: #fde047;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sh-cb-body {
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px 12px;
+  }
+  .sh-cb-presets {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 7px;
+    margin-bottom: 10px;
+  }
+  .sh-cb-preset-card {
+    background: #ffffff;
+    border: 1.5px solid #fcd34d;
+    border-radius: 10px;
+    padding: 8px 9px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .sh-cb-preset-card.active {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 2px solid #b45309;
+  }
+  .sh-cb-preset-title {
+    font-size: 11.5px;
+    font-weight: 900;
+    color: #7c2d12;
+    line-height: 1.25;
+  }
+  .sh-cb-preset-sub {
+    font-size: 9.5px;
+    color: #57534e;
+    margin-top: 3px;
+    line-height: 1.2;
+  }
+  .sh-cb-preset-badge {
+    display: inline-block;
+    margin-top: 5px;
+    align-self: flex-start;
+    background: #991b1b;
+    color: #fde047;
+    font-size: 9px;
+    font-weight: 900;
+    padding: 1.5px 6px;
+    border-radius: 5px;
+  }
+  .sh-cb-item-row {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-left: 4px solid #b45309;
+    border-radius: 9px;
+    padding: 7px 9px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .sh-cb-item-row input[type="text"],
+  .sh-cb-item-row select {
+    margin: 0 !important;
+    padding: 5px 7px !important;
+    font-size: 11.5px !important;
+    font-weight: 800 !important;
+    height: 30px !important;
+  }
+  .sh-cb-item-row input[type="number"] {
+    margin: 0 !important;
+    padding: 5px 6px !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    height: 30px !important;
+    text-align: right;
+  }
+  .sh-cb-summary {
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+    color: #ffffff;
+    border-radius: 11px;
+    padding: 9px 11px;
+    margin-top: 8px;
+    border: 1.5px solid #34d399;
+  }
+  .sh-cb-footer {
+    background: #ffffff;
+    border-top: 1.5px solid #fcd34d;
+    padding: 9px 12px;
+    display: flex;
+    gap: 8px;
+  }
+
+  @media print {
+    .sh-qr-tag-wrap, .sh-qr-svg-box, .sh-bill-qr-only {
+      background: #ffffff !important;
+      border-color: #000000 !important;
+    }
+    .tag-rack-hero, .tag-rack-pill {
+      background: #ffffff !important;
+      border: 3.5px solid #000000 !important;
+      box-shadow: none !important;
+    }
+    .tag-rack-hero-right {
+      background: #ffffff !important;
+      color: #000000 !important;
+    }
+  }

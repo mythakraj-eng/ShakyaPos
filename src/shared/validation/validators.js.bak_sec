@@ -1,0 +1,39 @@
+// src/shared/validation/validators.js — Stock & Financial Validators
+(function(global) {
+  "use strict";
+  function isValidTenDigitMobile(mob) {
+    const clean = String(mob || "").replace(/\D/g, "");
+    return clean.length === 10;
+  }
+
+  function validateBillAmounts(totalMrp, acc, paid, exchangeCredit, payMode, splitCash, splitUpi, custMobile) {
+    const netTarget = Math.max(0, Number(acc) - (Number(exchangeCredit) || 0));
+    if (!Number.isFinite(acc) || !Number.isFinite(paid) || acc < 0 || paid < 0 || paid > netTarget) {
+      return { ok: false, error: 'Galat Rakam: Paid amount Tay Payable se zyada ya minus nahi ho sakta!' };
+    }
+    const due = Math.max(0, netTarget - paid);
+    if (due > 0 && !isValidTenDigitMobile(custMobile)) {
+      return { ok: false, error: 'Udhaar rakhne ke liye 10-ank ka Mobile Number zaroori hai!' };
+    }
+    if (payMode === "Split") {
+      const sc = Number(splitCash) || 0;
+      const su = Number(splitUpi) || 0;
+      if (sc < 0 || su < 0 || Math.abs((sc + su) - paid) > 0.01) {
+        return { ok: false, error: 'Split Cash + UPI ka jod Paid amount ke barabar hona chahiye!' };
+      }
+    }
+    return { ok: true, netTarget, due };
+  }
+
+  function clampStockQty(requestedQty, availableQty) {
+    const req = Math.max(1, Number(requestedQty) || 1);
+    const avail = Math.max(0, Number(availableQty) || 0);
+    return avail > 0 ? Math.min(req, avail) : req;
+  }
+
+  global.ShakyaValidators = Object.freeze({
+    isValidTenDigitMobile,
+    validateBillAmounts,
+    clampStockQty
+  });
+})(typeof window !== 'undefined' ? window : globalThis);

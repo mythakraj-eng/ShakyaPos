@@ -1414,5 +1414,47 @@
 <script src="src/services/sync/sync-manager.js"></script>
 <script src="src/services/storage/local-storage.js"></script>
 <!-- [PHASE-M7: PRODUCTION RESILIENCE SERVICES END] -->
+
+<!-- DUKAAN BAND AUTOMATION -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    if (document.getElementById("btn-dukaan-band")) return; // Prevent duplicates
+
+    // Create the normal menu button
+    let btn = document.createElement("button");
+    btn.id = "btn-dukaan-band";
+    btn.innerHTML = "🔒 Dukaan Band";
+    btn.style.cssText = "background-color: #dc2626; color: white; font-weight: bold; padding: 4px 12px; border-radius: 8px; border: none; cursor: pointer; margin-left: 8px; margin-right: 8px; font-size: 14px;";
+    
+    btn.onclick = function() {
+        const rawPosData = localStorage.getItem("shakya_pos_data") || '{}';
+        const blob = new Blob([rawPosData], { type: "application/json" });
+        const link = document.createElement("a");
+        const dateStr = new Date().toISOString().split('T')[0];
+        
+        link.href = URL.createObjectURL(blob);
+        link.download = `Shakya_POS_Backup_${dateStr}.json`;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        alert("✅ Dukaan Band! Data downloaded to phone. Run your Pydroid script to push to GitHub.");
+    };
+
+    // Find the existing "Exit" button in your top bar and insert this right next to it
+    let buttons = Array.from(document.querySelectorAll("button"));
+    let exitBtn = buttons.find(b => b.textContent.includes("Exit"));
+    
+    if (exitBtn && exitBtn.parentNode) {
+        exitBtn.parentNode.insertBefore(btn, exitBtn);
+    } else {
+        // Fallback: put it at the very top of the page if Exit isn't found
+        document.body.insertBefore(btn, document.body.firstChild);
+    }
+});
+</script>
+<!-- END DUKAAN BAND AUTOMATION -->
+
 </body>
 </html>

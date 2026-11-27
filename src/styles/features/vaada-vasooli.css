@@ -1,0 +1,189 @@
+/* Extracted from <!-- === SHAKYA COSMETIC: UDHAAR VAADA TARIKH & VILLAGE VASOOLI === --> */
+/* 1. Billing Screen Vaada Tarikh Strip (Appears automatically when Due > 0) */
+  #shBillingVaadaRow {
+    display: none;
+    margin-top: 6px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    background: #fffbeb;
+    border: 1.5px solid #fcd34d;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+  .sh-vaada-quick-pills {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .sh-vq-pill {
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: #ffffff;
+    border: 1px solid #f59e0b;
+    color: #92400e;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+    user-select: none;
+  }
+  .sh-vq-pill.active, .sh-vq-pill:active {
+    background: #d97706;
+    color: #ffffff;
+    border-color: #b45309;
+  }
+
+  /* 2. Overdue & Today Vaada Alarm Card in Khata Tab */
+  #shOverdueAlarmCard {
+    display: none;
+    background: linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%);
+    border: 2px solid #ef4444;
+    border-radius: 13px;
+    padding: 10px 11px;
+    margin-bottom: 11px;
+    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.14);
+  }
+  .sh-alarm-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 7px;
+    padding-bottom: 5px;
+    border-bottom: 1px dashed #fca5a5;
+  }
+  .sh-alarm-title {
+    font-size: 12.5px;
+    font-weight: 900;
+    color: #991b1b;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .sh-alarm-row {
+    background: #ffffff;
+    border: 1px solid #fecaca;
+    border-left: 4px solid #dc2626;
+    border-radius: 9px;
+    padding: 7px 9px;
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .sh-alarm-row.due-today {
+    border-left-color: #d97706;
+    background: #fffbeb;
+    border-color: #fde68a;
+  }
+
+  /* Vaada Status Badges inside Khata Table */
+  .sh-vaada-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 3px;
+    padding: 1.5px 6px;
+    border-radius: 6px;
+    font-size: 9.5px;
+    font-weight: 800;
+    cursor: pointer;
+    user-select: none;
+  }
+  .sh-vaada-tag.overdue {
+    background: #fef2f2;
+    border: 1px solid #f87171;
+    color: #b91c1c;
+  }
+  .sh-vaada-tag.today {
+    background: #fffbeb;
+    border: 1px solid #fbbf24;
+    color: #92400e;
+  }
+  .sh-vaada-tag.upcoming {
+    background: #ecfdf5;
+    border: 1px solid #6ee7b7;
+    color: #065f46;
+  }
+  .sh-vaada-tag.unset {
+    background: #f1f5f9;
+    border: 1px dashed #94a3b8;
+    color: #475569;
+  }
+
+  /* 3. Village-Wise Vasooli Route Strip & Group Headers */
+  #shVillageVasooliBox {
+    display: none;
+    background: #f8fafc;
+    border: 1.5px solid var(--chip-border);
+    border-radius: 11px;
+    padding: 8px 9px;
+    margin-bottom: 9px;
+  }
+  #shVillageVasooliBox.open {
+    display: block;
+  }
+  .sh-vil-chip-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 3px 1px;
+    scrollbar-width: none;
+  }
+  .sh-vil-chip-row::-webkit-scrollbar { display: none; }
+  .sh-vil-pill {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    font-size: 11px;
+    font-weight: 800;
+    color: #1e293b;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .sh-vil-pill.active {
+    background: var(--maroon);
+    color: #ffffff;
+    border-color: var(--maroon-dark);
+    box-shadow: 0 2px 8px rgba(46, 16, 101, 0.22);
+  }
+  .sh-vil-pill small {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #dc2626;
+  }
+  .sh-vil-pill.active small {
+    color: #fde047;
+  }
+
+  tr.sh-village-group-header td {
+    background: linear-gradient(90deg, var(--maroon-light) 0%, #f8fafc 100%) !important;
+    color: var(--maroon-dark) !important;
+    font-weight: 900 !important;
+    font-size: 11.5px !important;
+    padding: 7px 8px !important;
+    border-top: 1.5px solid var(--chip-border) !important;
+    border-bottom: 1.5px solid var(--chip-border) !important;
+  }
+
+  /* Vaada Date Setter Modal */
+  #shVaadaModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.8);
+    z-index: 1450;
+    padding: 14px;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(2.5px);
+  }

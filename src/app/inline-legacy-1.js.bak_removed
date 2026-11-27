@@ -1,0 +1,272 @@
+// Extracted inline script block
+(function() {
+  // ==========================================================================
+  // FIX 1: SINGLETON AUDIOCONTEXT (Prevents Android Chrome Beep Death after 25 scans)
+  // ==========================================================================
+  let sharedAudioCtx = null;
+  window.playPosBeep = function(freq = 880, duration = 0.07) {
+    try {
+      const isBeepOn = (typeof soundBeepEnabled !== "undefined")
+        ? !!soundBeepEnabled
+        : JSON.parse(localStorage.getItem("sc_sound_beep") ?? "true");
+      if (!isBeepOn) return;
+
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
+        sharedAudioCtx = new AudioCtx();
+      }
+      if (sharedAudioCtx.state === "suspended") {
+        sharedAudioCtx.resume().catch(() => {});
+      }
+
+      const osc = sharedAudioCtx.createOscillator();
+      const gain = sharedAudioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, sharedAudioCtx.currentTime);
+      gain.gain.setValueAtTime(0.08, sharedAudioCtx.currentTime);
+      osc.connect(gain);
+      gain.connect(sharedAudioCtx.destination);
+      osc.start();
+      osc.stop(sharedAudioCtx.currentTime + duration);
+    } catch (e) {}
+  };
+
+  // ==========================================================================
+  // FIX 2: LOCAL IST DATE HELPER (Fixes UTC 5.5-hour midnight date lag)
+  // ==========================================================================
+  window.getLocalIsoDate = function(dateObj) {
+    const d = dateObj || new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  // ==========================================================================
+  // FIX 3: STOCK FILTER RESET (Resets #fMahajan and #fRack alongside fSearch/fCat/fStatus)
+  // ==========================================================================
+  window.resetStockFilters = function() {
+    const fSearch = document.getElementById("fSearch");
+    const fCat = document.getElementById("fCat");
+    const fStatus = document.getElementById("fStatus");
+    const fMahajan = document.getElementById("fMahajan");
+    const fRack = document.getElementById("fRack");
+
+    if (fSearch) fSearch.value = "";
+    if (fCat) fCat.value = "ALL";
+    if (fStatus) fStatus.value = "ALL";
+    if (fMahajan) fMahajan.value = "ALL";
+    if (fRack) fRack.value = "ALL";
+
+    if (typeof window.renderStock === "function") window.renderStock();
+    if (typeof window.playPosBeep === "function") window.playPosBeep(920, 0.04);
+  };
+
+  // ==========================================================================
+  // FIX 4: FULL BACKUP & RESTORE (Includes Mandi Bills & Mahajan Payments!)
+  // ==========================================================================
+  window.downloadBackupJSON = function() {
+    const inv = (typeof inventory !== "undefined" && Array.isArray(inventory)) ? inventory : [];
+    const sls = (typeof sales !== "undefined" && Array.isArray(sales)) ? sales : [];
+    const udh = (typeof udhaarLogs !== "undefined" && Array.isArray(udhaarLogs)) ? udhaarLogs : [];
+    const exp = (typeof expenses !== "undefined" && Array.isArray(expenses)) ? expenses : [];
+    const cnt = (typeof contacts !== "undefined" && Array.isArray(contacts)) ? contacts : [];
+    const mBills = Array.isArray(window.mandiBills) ? window.mandiBills : [];
+    const mPays = Array.isArray(window.mandiPayments) ? window.mandiPayments : [];
+    const pin = (typeof ownerPin !== "undefined") ? ownerPin : "1234";
+    const upi = (typeof merchantUpiId !== "undefined") ? merchantUpiId : "8780234760@ybl";
+    const pPrefs = (typeof printerPrefs !== "undefined") ? printerPrefs : {};
+    const thm = (typeof currentThemeKey !== "undefined") ? currentThemeKey : "INDIGO";
+
+    const data = JSON.stringify({
+      version: 4,
+      exportedAt: new Date().toISOString(),
+      inventory: inv,
+      sales: sls,
+      udhaarLogs: udh,
+      expenses: exp,
+      contacts: cnt,
+      mandiBills: mBills,
+      mandiPayments: mPays,
+      ownerPin: pin,
+      merchantUpiId: upi,
+      printerPrefs: pPrefs,
+      currentThemeKey: thm
+    });
+
+    const blob = new Blob([data], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `Shakya_POS_FullBackup_${window.getLocalIsoDate()}.json`;
+    a.click();
+    if (typeof showInlineMsg === "function") {
+      showInlineMsg("backupMsg", "✅ Complete App + Mandi Khata Backup (.JSON) download ho gaya!", "success");
+    }
+  };
+
+  window.restoreBackupJSON = function(event) {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (parsed && parsed.inventory && parsed.sales) {
+          const norm = (typeof normalizeArray === "function") ? normalizeArray : (v => Array.isArray(v) ? v : []);
+          if (typeof inventory !== "undefined") {
+            inventory.length = 0;
+            norm(parsed.inventory).forEach(x => inventory.push(x));
+          }
+          if (typeof sales !== "undefined") {
+            sales.length = 0;
+            norm(parsed.sales).forEach(x => sales.push(x));
+          }
+          if (parsed.udhaarLogs && typeof udhaarLogs !== "undefined") {
+            udhaarLogs.length = 0;
+            norm(parsed.udhaarLogs).forEach(x => udhaarLogs.push(x));
+          }
+          if (parsed.expenses && typeof expenses !== "undefined") {
+            expenses.length = 0;
+            norm(parsed.expenses).forEach(x => expenses.push(x));
+          }
+          if (parsed.contacts && typeof contacts !== "undefined") {
+            contacts.length = 0;
+            norm(parsed.contacts).forEach(x => contacts.push(x));
+          }
+          if (parsed.mandiBills) {
+            window.mandiBills = norm(parsed.mandiBills);
+            localStorage.setItem("sc_mandi_bills", JSON.stringify(window.mandiBills));
+          }
+          if (parsed.mandiPayments) {
+            window.mandiPayments = norm(parsed.mandiPayments);
+            localStorage.setItem("sc_mandi_payments", JSON.stringify(window.mandiPayments));
+          }
+          if (parsed.ownerPin && typeof ownerPin !== "undefined") {
+            ownerPin = String(parsed.ownerPin);
+          }
+          if (parsed.merchantUpiId && typeof merchantUpiId !== "undefined") {
+            merchantUpiId = String(parsed.merchantUpiId);
+          }
+          if (parsed.printerPrefs && typeof printerPrefs !== "undefined") {
+            printerPrefs = parsed.printerPrefs;
+            localStorage.setItem("sc_printer_prefs", JSON.stringify(printerPrefs));
+            if (typeof initPrinterSettingsUI === "function") initPrinterSettingsUI();
+          }
+          if (parsed.currentThemeKey && typeof applyAppTheme === "function") {
+            applyAppTheme(parsed.currentThemeKey);
+          }
+          if (typeof syncToCloud === "function") syncToCloud();
+          if (typeof renderStock === "function") renderStock();
+          if (typeof renderStats === "function") renderStats();
+          if (typeof renderCustomerSection === "function") renderCustomerSection();
+          if (typeof renderMandiKhataUI === "function") renderMandiKhataUI();
+          if (typeof showInlineMsg === "function") {
+            showInlineMsg("backupMsg", "✅ Full Backup (Stock + Bills + Mandi Khata) safaltapoorvak Restore ho gaya!", "success");
+          }
+        }
+      } catch (err) {
+        if (typeof showInlineMsg === "function") {
+          showInlineMsg("backupMsg", "❌ Invalid backup file!", "error");
+        }
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // ==========================================================================
+  // FIX 5: SHAADI COMBO STOCK VALIDATION & CART DEDUPLICATION
+  // ==========================================================================
+  function patchComboStockValidation() {
+    const origCommitCombo = window.commitComboToBillCart;
+    if (typeof origCommitCombo !== "function" || origCommitCombo._stockValidated) return;
+
+    // Wrap commitComboToBillCart so any stock items inside the combo check available qty
+    // and merge cleanly if already in cart
+    const safeCommit = function() {
+      const inv = (typeof inventory !== "undefined" && Array.isArray(inventory)) ? inventory : [];
+      const cList = (typeof cart !== "undefined" && Array.isArray(cart)) ? cart : [];
+      const beforeLen = cList.length;
+
+      origCommitCombo();
+
+      // Deduplicate any stock items that were pushed as separate rows and cap at available stock qty
+      for (let i = cList.length - 1; i >= beforeLen; i--) {
+        const added = cList[i];
+        if (!added || added.isLoose) continue;
+        const st = inv.find(x => x && x.code === added.code);
+        if (st) {
+          // Check if same stock code existed earlier in cart
+          const earlierIdx = cList.findIndex((x, idx) => idx < i && x && !x.isLoose && x.code === added.code);
+          if (earlierIdx !== -1) {
+            const combined = Math.min(st.qty, cList[earlierIdx].qty + added.qty);
+            cList[earlierIdx].qty = combined;
+            cList.splice(i, 1);
+          } else if (added.qty > st.qty) {
+            added.qty = Math.max(1, st.qty);
+          }
+        }
+      }
+      if (typeof renderCart === "function") renderCart();
+    };
+    safeCommit._stockValidated = true;
+    window.commitComboToBillCart = safeCommit;
+  }
+
+  // ==========================================================================
+  // FIX 6: HARDWARE BACK BUTTON (`popstate`) & SWIPE GUARD FOR ALL 7 NEW MODALS
+  // ==========================================================================
+  const EXTRA_MODALS = [
+    { id: "shComboModal", close: () => window.closeShComboModal && window.closeShComboModal() },
+    { id: "shAuditModal", close: () => window.closeShAuditModal && window.closeShAuditModal() },
+    { id: "shPosterModal", close: () => window.closeShPosterModal && window.closeShPosterModal() },
+    { id: "shVaadaModal", close: () => window.closeShVaadaModal && window.closeShVaadaModal() },
+    { id: "shPasandModal", close: () => window.closeShPasandModal && window.closeShPasandModal() },
+    { id: "mandiInvoiceModal", close: () => window.closeMandiInvoiceModal && window.closeMandiInvoiceModal() },
+    { id: "mandiPayModal", close: () => window.closeMandiPayModal && window.closeMandiPayModal() },
+    { id: "customSelectModal", close: () => window.closeCustomSelect && window.closeCustomSelect() }
+  ];
+
+  window.addEventListener("popstate", function() {
+    for (const m of EXTRA_MODALS) {
+      const el = document.getElementById(m.id);
+      if (el && (el.style.display === "flex" || el.style.display === "block")) {
+        m.close();
+        return;
+      }
+    }
+    const rib = document.getElementById("shakyaExcelRibbon");
+    if (rib && rib.classList.contains("open") && typeof window.closeRibbonDrawer === "function") {
+      window.closeRibbonDrawer();
+    }
+  });
+
+  // Prevent horizontal tab swipe when touching inside any of the new modals or drawers
+  document.addEventListener("touchstart", function(e) {
+    if (e.target.closest("#shComboModal, #shAuditModal, #shPosterModal, #shVaadaModal, #shPasandModal, #mandiInvoiceModal, #mandiPayModal, #customSelectModal, #shakyaExcelRibbon")) {
+      try {
+        if (typeof ignoreSwipe !== "undefined") ignoreSwipe = true;
+      } catch (err) {}
+    }
+  }, { passive: true, capture: true });
+
+  // ==========================================================================
+  // FIX 7: ENSURE STOCK AUDIT SCAN BUTTON ALWAYS ROUTES TO AUDIT QUEUE
+  // ==========================================================================
+  function enforceCleanScannerRouting() {
+    window.startAuditCameraScanner = function() {
+      if (typeof window.startScanner === "function") {
+        window.startScanner("AUDIT_CUSTOM", true);
+      }
+    };
+  }
+
+  window.addEventListener("DOMContentLoaded", () => {
+    patchComboStockValidation();
+    enforceCleanScannerRouting();
+  });
+  setTimeout(() => {
+    patchComboStockValidation();
+    enforceCleanScannerRouting();
+  }, 320);
+})();

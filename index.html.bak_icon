@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="hi">
+<!-- =====================================================================
+     [HTML-01: HEAD, PWA META & EXTERNAL LIBRARIES START]
+     ===================================================================== -->
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" id="metaThemeColor" content="#1e1b4b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>दीदी की दुकान | Shakya POS</title>
+
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%231e1b4b' stroke='%23f59e0b' stroke-width='6'/><text x='50' y='44' font-family='sans-serif' font-size='26' font-weight='900' fill='%23f59e0b' text-anchor='middle'>दीदी</text><text x='50' y='74' font-family='sans-serif' font-size='16' font-weight='800' fill='%23ffffff' text-anchor='middle'>SHAKYA</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%231e1b4b' stroke='%23f59e0b' stroke-width='6'/><text x='50' y='44' font-family='sans-serif' font-size='26' font-weight='900' fill='%23f59e0b' text-anchor='middle'>दीदी</text><text x='50' y='74' font-family='sans-serif' font-size='16' font-weight='800' fill='%23ffffff' text-anchor='middle'>SHAKYA</text></svg>">
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').then(reg => {
+          try { reg.update(); } catch (e) {}
+        }).catch(() => {});
+      });
+    }
+  </script>
+
+  <!-- Firebase App & Realtime Database SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+  <!-- Barcode, QR Generator, QR Scanner & Receipt Image Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- [HTML-01: HEAD, PWA META & EXTERNAL LIBRARIES END] -->
+    <!-- [PHASE-M2: MODULAR STYLESHEETS & SHARED UTILITIES START] -->
+  <link rel="stylesheet" href="src/styles/base.css">
+  <link rel="stylesheet" href="src/styles/layout.css">
+  <link rel="stylesheet" href="src/styles/components.css">
+  <link rel="stylesheet" href="src/styles/features/bulk-studio.css">
+  <link rel="stylesheet" href="src/styles/features/tab-customizer.css">
+  <link rel="stylesheet" href="src/styles/features/mandi-khata.css">
+  <link rel="stylesheet" href="src/styles/features/pasand-traffic.css">
+  <link rel="stylesheet" href="src/styles/features/bill-cart.css">
+  <link rel="stylesheet" href="src/styles/features/wa-poster.css">
+  <link rel="stylesheet" href="src/styles/features/vaada-vasooli.css">
+  <link rel="stylesheet" href="src/styles/features/rack-audit.css">
+  <link rel="stylesheet" href="src/styles/features/scanner-combo.css">
+  <link rel="stylesheet" href="src/styles/features/resilience-shields.css">
+  <script src="src/app/state.js"></script>
+  <script src="src/app/app-config.js"></script>
+  <script src="src/app/main.js"></script>
+  <script src="src/shared/constants/shop-constants.js"></script>
+  <script src="src/shared/utils/dates.js"></script>
+  <script src="src/shared/utils/money.js"></script>
+  <script src="src/shared/utils/ids.js"></script>
+  <script src="src/shared/validation/validators.js"></script>
+  <script src="src/shared/dom/live-state-bridge.js"></script>
+  <!-- [PHASE-M2: MODULAR STYLESHEETS & SHARED UTILITIES END] -->
+  <style id="dynamicPrintPageStyle">
+    @page { size: 80mm auto; margin: 0mm; }
+  </style>
+</head>
+<body>
+
+<!-- =====================================================================
+     [HTML-02: TOP HEADER & GLOBAL CONTROLS START]
+     ===================================================================== -->
+<header>
+  <div class="banner-board">
+    <div class="banner-top-row">
+      <span class="banner-corner-ornament"> शुभ लाभ </span>
+      <div class="didi-badge">✨ दीदी की दुकान ✨</div>
+      <span id="syncStatusBadge" class="sync-badge">🔄 Connecting...</span>
+    </div>
+    <h1 class="banner-title">SHAKYA COSMETIC</h1>
+    <div class="banner-hindi">शाक्या कॉस्मेटिक एवं साड़ी कलेक्शन</div>
+    <div class="banner-address">📍 निवाड़ी कलां (इटावा) &nbsp;•&nbsp; 📞 8780234760</div>
+  </div>
+  <div class="header-actions">
+    <button id="themeCycleBtn" class="slide-lock-btn" onclick="cycleAppTheme()" title="Change App Colour UI">🎨 UI: Indigo</button>
+    <button id="printerHeaderBtn" class="slide-lock-btn" onclick="openPrinterSettingsTab()" title="Printer Settings">🖨️ 80mm • RawBT</button>
+    <button id="soundToggleBtn" class="slide-lock-btn" onclick="toggleSoundBeep()" title="Scanner Beep Sound">🔊 Beep</button>
+    <button id="ownerLockBtn" class="slide-lock-btn" onclick="toggleOwnerMode()">🔒 Cost: OFF</button>
+    <button id="swipeLockBtn" class="slide-lock-btn" onclick="toggleSwipeLock()">👆 Slide: ON</button>
+    <button class="shutdown-btn" onclick="openShutdownModal()">🛑 Exit</button>
+  </div>
+</header>
+<!-- [HTML-02: TOP HEADER & GLOBAL CONTROLS END] -->
+
+<!-- =====================================================================
+     [HTML-03: SYSTEM POPUP MODALS START]
+     ===================================================================== -->
+<!-- OPTIONAL STARTUP PIN LOCK MODAL -->
+<div id="startupLockModal">
+  <div class="dialog-box">
+    <div class="didi-badge" style="margin-bottom:6px;">✨ दीदी की दुकान ✨</div>
+    <h3 style="color:var(--maroon); margin-top:0;">🔒 Shakya POS Security Lock</h3>
+    <p style="font-size:12px; color:#555; margin:6px 0;">Dukaan ka App kholne ke liye apna 4-ank ka PIN daalein:</p>
+    <input type="password" id="startupPinInput" placeholder="****" maxlength="4" inputmode="numeric" style="text-align:center; font-size:20px; font-weight:bold; letter-spacing:6px;" onkeydown="if(event.key==='Enter') verifyStartupPin()">
+    <div id="startupPinErr" style="color:#b30000; font-size:11px; margin-top:6px; font-weight:bold; display:none;">❌ Galat PIN! Dobara koshish karein.</div>
+    <button class="gold" style="margin-top:12px;" onclick="verifyStartupPin()">🔓 App Kholein</button>
+  </div>
+</div>
+
+<!-- OWNER PIN MODAL -->
+<div id="pinModal">
+  <div class="dialog-box">
+    <h3 style="color:var(--maroon); margin-top:0;">🔐 Owner PIN Daalein</h3>
+    <p style="font-size:12px; color:#555; margin:6px 0;">Asli Kharid (Cost) aur Munafa (Profit) dekhne ke liye 4-ank ka PIN daalein:</p>
+    <input type="password" id="ownerPinInput" placeholder="****" maxlength="4" inputmode="numeric" style="text-align:center; font-size:20px; font-weight:bold; letter-spacing:6px;" onkeydown="if(event.key==='Enter') verifyOwnerPin()">
+    <div id="pinErrorMsg" style="color:#b30000; font-size:11px; margin-top:6px; font-weight:bold; display:none;">❌ Galat PIN! Dobara koshish karein.</div>
+    <div class="row" style="margin-top:14px;">
+      <div><button class="dark" style="margin:0;" onclick="closePinModal()">Cancel</button></div>
+      <div><button class="gold" style="margin:0;" onclick="verifyOwnerPin()">🔓 Unlock</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- DYNAMIC UPI QR POPUP MODAL -->
+<div id="upiQrModal">
+  <div class="dialog-box">
+    <div class="didi-badge" style="margin-bottom:4px;">दीदी की दुकान • SHAKYA COSMETIC</div>
+    <h3 style="color:var(--maroon); margin:2px 0 6px;">📱 Scan & Pay Instant UPI</h3>
+    <p id="upiModalAmtText" style="font-size:18px; font-weight:900; color:var(--green); margin:4px 0;">₹0</p>
+    <div id="upiModalQrBox" style="margin:10px auto; padding:10px; background:#fff; border:2px solid var(--maroon); border-radius:12px; display:inline-block;"></div>
+    <p id="upiModalIdText" style="font-size:11px; color:#555; margin:4px 0;">UPI ID: 8780234760@ybl</p>
+    <button class="dark" style="margin-top:10px;" onclick="closeUpiQrModal()">✅ Done / Band Karein</button>
+  </div>
+</div>
+
+<!-- EXCEL-STYLE BULK STOCK ENTRY MODAL -->
+<div id="bulkStockModal">
+  <div class="dialog-box" style="max-width:560px; text-align:left;">
+    <h3 style="color:var(--maroon); margin-top:0; text-align:center;">📊 Excel-Style Bulk Stock Entry</h3>
+    <p style="font-size:11px; color:#555; margin:0 0 8px; text-align:center;">Mandi ke parchi se ek sath kai items seedhe table mein bharein:</p>
+    <div style="overflow-x:auto; max-height:300px;">
+      <table class="bulk-grid-table">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Category</th>
+            <th>Colour</th>
+            <th>Qty</th>
+            <th>Cost₹</th>
+            <th>MRP₹</th>
+          </tr>
+        </thead>
+        <tbody id="bulkStockRows"></tbody>
+      </table>
+    </div>
+    <button class="small" style="background:#e2e8f0; color:#1e293b; margin-top:8px;" onclick="addMoreBulkRows(3)">➕ 3 Aur Row Jodein</button>
+    <div class="row" style="margin-top:12px;">
+      <div><button class="dark" style="margin:0;" onclick="closeBulkStockModal()">Cancel</button></div>
+      <div><button class="gold" style="margin:0;" onclick="saveBulkStockRows()">💾 Sabhi Save Karein</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK EDIT STOCK MODAL -->
+<div id="editStockModal">
+  <div class="dialog-box" style="text-align:left;">
+    <h3 style="color:var(--maroon); margin-top:0; text-align:center;">✏️ Edit Stock Item</h3>
+    <input type="hidden" id="editOrigCode">
+    <div class="row">
+      <div>
+        <label>Item Code</label>
+        <input type="text" id="editCode" oninput="this.value = cleanCode(this.value)">
+      </div>
+      <div>
+        <label>Category</label>
+        <select id="editCat">
+          <option value="Daily Saree">Daily Saree</option>
+          <option value="Fancy Saree">Fancy Saree</option>
+          <option value="Petticoat">Petticoat</option>
+          <option value="Blouse/Fall">Blouse/Fall</option>
+          <option value="Cosmetic">Cosmetic</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Colour</label>
+        <div class="edit-color-row">
+          <input type="text" id="editColor" placeholder="Red">
+          <button type="button" class="gold" onclick="toggleEditColorDrawer()">🎨 Palette</button>
+        </div>
+        <div id="editColorDrawer" class="edit-drawer">
+          <div style="font-size:10px; font-weight:800; color:var(--maroon); margin-bottom:4px;">Naya Saree Rang Chunein:</div>
+          <div class="multi-grid" id="editPaletteGrid" style="max-height:140px; overflow-y:auto;"></div>
+        </div>
+      </div>
+      <div>
+        <label>Available Qty</label>
+        <input type="number" id="editQty">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Landing Cost (₹)</label>
+        <input type="number" id="editCost">
+      </div>
+      <div>
+        <label>Sticker MRP (₹)</label>
+        <input type="number" id="editMrp">
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px;">
+      <div><button class="dark" style="margin:0;" onclick="closeEditStockModal()">Cancel</button></div>
+      <div><button class="gold" style="margin:0;" onclick="saveEditedStock()">💾 Update</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- SHUTDOWN MODAL -->
+<div id="shutdownModal">
+  <div class="dialog-box">
+    <h3 style="color:var(--maroon); margin-top:0;">⚠️ App Band Karein?</h3>
+    <p style="font-size:13px; color:#555; margin:10px 0 18px 0;">Kya aap Shakya POS app ko surakshit band karna chahte hain?</p>
+    <div class="row">
+      <div><button class="dark" style="margin:0;" onclick="closeShutdownModal()">Rukiye (Cancel)</button></div>
+      <div><button style="margin:0; background:#b30000;" onclick="confirmShutdown()">Haan, Band Karein</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- WHATSAPP NUMBER PROMPT MODAL -->
+<div id="waPromptModal">
+  <div class="dialog-box">
+    <h3 style="color:var(--maroon); margin-top:0;">💬 Customer WhatsApp Number</h3>
+    <p style="font-size:12px; color:#555; margin:6px 0 6px 0;">Customer ka 10-ank ka Mobile Number daalein (Asli chhapa hua Bill unke WhatsApp par bhejne ke liye):</p>
+    <input type="tel" id="waInputNumber" placeholder="Ex: 9876543210" maxlength="10" oninput="this.value = this.value.replace(/[^0-9]/g, '')" style="text-align:center; font-size:16px; font-weight:bold;">
+    <div id="waErrorMsg" style="color:#b30000; font-size:11px; margin-top:6px; font-weight:bold; display:none;"></div>
+    <div class="row" style="margin-top:14px;">
+      <div><button class="dark" style="margin:0;" onclick="closeWaModal()">Cancel</button></div>
+      <div><button class="whatsapp" style="margin:0;" onclick="submitWaNumber()">📸 Asli Bill Bhejein</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- UDHAAR JAMA MODAL -->
+<div id="udhaarModal">
+  <div class="dialog-box">
+    <h3 style="color:var(--maroon); margin-top:0;">💰 Udhaar Jama Karein</h3>
+    <p id="udhaarCustInfo" style="font-size:12px; color:#555; margin:6px 0; font-weight:bold;"></p>
+    <label style="text-align:left;">Kitne Rupaye Mile?</label>
+    <input type="number" id="udhaarReceiveInput" placeholder="Amount (₹)" style="text-align:center; font-size:16px; font-weight:bold;">
+    <label style="text-align:left;">Payment Mode</label>
+    <select id="udhaarPayMode">
+      <option value="Cash">💵 Cash (Nagad)</option>
+      <option value="UPI">📱 PhonePe / UPI</option>
+      <option value="AEPS Cash">🏦 Spice Money AEPS</option>
+    </select>
+    <div class="row" style="margin-top:12px;">
+      <div><button class="gold" style="margin:0;" onclick="confirmUdhaarPayment(false)">✅ Sirf Jama</button></div>
+      <div><button class="whatsapp" style="margin:0;" onclick="confirmUdhaarPayment(true)">💬 Jama + WA Raseed</button></div>
+    </div>
+    <button class="dark" style="margin-top:8px; padding:7px;" onclick="closeUdhaarModal()">Cancel</button>
+  </div>
+</div>
+
+<!-- APP CLOSED LOCK SCREEN -->
+<div id="appClosedScreen">
+  <div class="closed-box">
+    <div style="font-size:40px; margin-bottom:8px;">🔒</div>
+    <div class="didi-badge" style="margin-bottom:6px;">दीदी की दुकान</div>
+    <h2 style="margin:0; color:var(--gold); font-size:20px;">SHAKYA POS BAND HAI</h2>
+    <p style="font-size:13px; margin:10px 0; opacity:0.95;">✅ Aapka sara Stock, Khata aur Bill data Local + Cloud par surakshit save ho chuka hai.</p>
+    <p style="font-size:11px; color:#e2e8f0; margin-bottom:18px;">Ab aap phone/tablet ka Home ya Back button dabakar bahar ja sakte hain.</p>
+    <button class="gold" onclick="reopenApp()">🔓 App Dobara Chalu Karein</button>
+  </div>
+</div>
+
+<!-- BARCODE CAMERA SCANNER MODAL -->
+<div id="scannerModal">
+  <h3 style="color:var(--gold); margin:6px 0;">⚡ Ultra-Fast Laser Scanner</h3>
+  <p style="color:#cbd5e1; font-size:11px; margin:0 0 8px 0;">Tag ko lal laser line ke beech rakhein (Auto-Scan):</p>
+  <div style="position:relative; width:100%; max-width:400px; margin:0 auto;">
+    <div id="reader" style="width:100%; background:#000; border-radius:12px; overflow:hidden; border:2px solid var(--gold);"></div>
+    <div style="position:absolute; left:8%; right:8%; top:50%; height:2px; background:#ef4444; box-shadow:0 0 10px 2px #ef4444; pointer-events:none; z-index:10;"></div>
+  </div>
+  <div class="row" style="max-width:400px; margin:10px auto 0; gap:8px;">
+    <div><button type="button" id="scanTorchBtn" class="dark" style="margin:0;" onclick="toggleScannerTorch()">🔦 Torch: OFF</button></div>
+    <div><button type="button" id="scanZoomBtn" class="dark" style="margin:0;" onclick="toggleScannerZoom()">🔍 Zoom: 1x</button></div>
+    <div><button type="button" class="gold" style="margin:0;" onclick="stopScanner()">❌ Band</button></div>
+  </div>
+</div>
+
+<!-- BILL DETAILS & SINGLE-ITEM EXCHANGE MODAL -->
+<div id="billModal">
+  <div class="modal-content">
+    <div id="modalInternalBox" style="background:#fffbeb; padding:10px; border-radius:8px; font-size:12px; margin-bottom:10px; border-left:4px solid var(--maroon);"></div>
+    <div id="modalReceiptBox"></div>
+
+    <!-- ITEM-WISE SELECTION FOR EXCHANGE -->
+    <div id="exchangeSectionBox" style="background:var(--maroon-light); border:1px solid var(--chip-border); padding:10px; border-radius:10px; margin-top:10px;">
+      <b style="color:var(--maroon); font-size:12px; display:block; margin-bottom:6px;">🔄 Saree Return / Exchange (Item chunein):</b>
+      <div id="exchangeItemsList"></div>
+      <div class="row" style="margin-top:8px;">
+        <div><button style="background:#059669; margin:0; font-size:11px; padding:8px;" onclick="exchangeSelectedItems(true)">🔄 Return & Naye Bill Mein Adjust</button></div>
+        <div><button style="background:#dc2626; margin:0; font-size:11px; padding:8px;" onclick="exchangeSelectedItems(false)">🔄 Sirf Return Karein</button></div>
+      </div>
+      <button class="dark" style="margin-top:6px; font-size:11px; padding:7px;" onclick="exchangeReturnBill()">🔄 Poora Bill Return Karein</button>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div><button class="thermal" style="margin:0;" onclick="printDirect80mmFromModal()">🖨️ Smart Print</button></div>
+      <div><button style="margin:0;" onclick="printFromModal()">🌐 Browser Print</button></div>
+      <div><button class="whatsapp" style="margin:0;" onclick="sendWhatsAppLastBill('IMAGE')">📸 WA Asli Bill</button></div>
+    </div>
+    <button class="dark" style="margin-top:6px; padding:8px;" onclick="closeBillModal()">❌ Band Karein (Close)</button>
+  </div>
+</div>
+<!-- [HTML-03: SYSTEM POPUP MODALS END] -->
+
+<!-- =====================================================================
+     [HTML-04: MAIN NAVIGATION TABS START]
+     ===================================================================== -->
+<div class="tabs">
+  <div class="tab active" id="tab-billing" onclick="switchTab('billing', this)">🧾 Billing <span id="cartCountBadge" class="tab-badge" style="display:none;">0</span></div>
+  <div class="tab" id="tab-stock" onclick="switchTab('stock', this)">📦 Stock <span id="lowStockBadge" class="tab-badge" style="display:none;">0</span></div>
+  <div class="tab" id="tab-stats" onclick="switchTab('stats', this)">📊 Insights</div>
+  <div class="tab" id="tab-cust" onclick="switchTab('cust', this)">👥 Khata/Cust</div>
+  <div class="tab" id="tab-backup" onclick="switchTab('backup', this)">🖨️ Printer/UI</div>
+</div>
+<!-- [HTML-04: MAIN NAVIGATION TABS END] -->
+
+<!-- =====================================================================
+     [HTML-05: SECTION 1 - BILLING & CART START]
+     ===================================================================== -->
+<div id="billing" class="section active">
+
+  <div class="mini-galla-strip">
+    <span id="miniTodaySale">📅 Aaj Bikri: ₹0 (0 Bills)</span>
+    <span id="miniGallaCash" style="color:var(--green);">💵 Net Cash: ₹0</span>
+    <button id="holdBillBtn" class="small" style="background:var(--maroon); color:#fff; margin:0; padding:4px 9px;" onclick="toggleHoldCart()">⏸️ Hold Bill</button>
+  </div>
+
+  <div class="card">
+    <h3>
+      <span>1. Scan / Code / Gorilla Short-Code</span>
+      <span class="color-chip" style="padding:2px 8px; font-size:10px; background:#ecfdf5; color:var(--green); border-color:var(--green);" onclick="quickAddFallPico()">🧵 + Fall-Pico (₹50)</span>
+    </h3>
+    <div class="row">
+      <div style="flex:2.1" class="suggest-wrap">
+        <input type="text" id="scanInput" placeholder="Code ya S+450, C+60 likhein..." autocomplete="off" oninput="onScanInputType(this)" onfocus="onScanInputType(this)" onkeydown="if(event.key==='Enter') addItemToBill()">
+        <div id="scanSuggestBox" class="suggest-box"></div>
+      </div>
+      <div style="flex:0.9">
+        <button style="margin:0;" onclick="addItemToBill()">+ Add</button>
+      </div>
+      <div style="flex:0.9">
+        <button class="dark" style="margin:0;" onclick="startScanner('BILL')">📷 Scan</button>
+      </div>
+    </div>
+
+    <div class="gorilla-hint">
+      <span>🦍 <b>Gorilla Fast Bill:</b> <code>S+450</code> (Saree ₹450), <code>F+850</code> (Fancy), <code>C+50</code> (Cosmetic), <code>P+120</code> (Petticoat)</span>
+    </div>
+
+    <div id="quickCatalogStrip" class="quick-catalog-strip"></div>
+
+    <div class="loose-box">
+      <div style="font-size:11px; font-weight:700; color:var(--maroon); margin-bottom:4px;">⚡ Bina Code / Futtkar Item Jodein (Cosmetic, Fall-Pico, Chudi):</div>
+      <div class="row">
+        <div style="flex:1.6;">
+          <input type="text" id="looseName" placeholder="Item (Ex: Chudi/Fall)" style="margin:0; padding:6px; font-size:12px;">
+        </div>
+        <div style="flex:1;">
+          <input type="number" id="looseMrp" placeholder="Rate ₹" style="margin:0; padding:6px; font-size:12px;">
+        </div>
+        <div style="flex:0.9;">
+          <input type="number" id="looseCost" placeholder="Cost ₹" style="margin:0; padding:6px; font-size:12px;">
+        </div>
+        <div style="flex:0.8;">
+          <button class="gold" style="margin:0; padding:6px; font-size:11px;" onclick="addLooseItemToBill()">+ Jodein</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="exchangeCreditBanner" class="credit-banner">
+      <span id="exchangeCreditText">🔄 Exchange Credit Applied: ₹0</span>
+      <button class="small" style="background:#dc2626; color:#fff; margin:0; padding:3px 7px;" onclick="clearExchangeCredit()">✕ Hatayein</button>
+    </div>
+
+    <div id="billMsg" class="inline-msg"></div>
+
+    <table id="cartTable">
+      <thead>
+        <tr><th>Code</th><th>Item & Qty</th><th>MRP (₹)</th><th style="text-align:right;"></th></tr>
+      </thead>
+      <tbody id="cartBody"></tbody>
+    </table>
+
+    <!-- [ANCHOR:BILLING_NAKAD_START] -->
+    <!-- Hidden elements kept in DOM so original JS functions never crash -->
+    <input type="hidden" id="accInput" value="">
+    <div id="lossWarningBox" style="display:none;"></div>
+    <div id="quickDiscountRow" style="display:none;"></div>
+
+    <div class="row" style="margin-top:10px; align-items:flex-end;">
+      <div>
+        <label>Sticker Bill (₹)</label>
+        <input type="number" id="billTotalMrp" readonly value="0" style="background:#e2e8f0; font-weight:900; color:#0f172a;">
+      </div>
+      <div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+          <label style="color:var(--green); margin:0;">Mila Cash/UPI (₹)</label>
+          <label style="display:inline-flex; align-items:center; gap:3px; font-size:10px; font-weight:800; color:var(--maroon); background:var(--maroon-light); padding:2px 6px; border-radius:6px; border:1px solid var(--chip-border); cursor:pointer; margin:0; user-select:none;">
+            <input type="checkbox" id="unlockCashChk" onchange="togglePaidInputLock(this)" style="width:13px; height:13px; margin:0;"> 🔓 Edit
+          </label>
+        </div>
+        <input type="number" id="paidInput" placeholder="Abhi mile paise" readonly style="background:#f1f5f9; font-weight:800;" oninput="updateLiveSplit(); syncNakadDueBanner();">
+      </div>
+    </div>
+
+    <div id="baakiUdhaarBanner" style="display:none; margin-top:6px; background:#fef2f2; border:1.5px solid #fca5a5; border-radius:10px; padding:7px 10px; align-items:center; justify-content:space-between;">
+      <span style="font-size:11.5px; font-weight:900; color:#dc2626;">⚠️ Baaki Udhaar (Due ₹):</span>
+      <input type="number" id="dueInput" readonly value="0" style="width:115px; margin:0; padding:4px 8px; background:#ffffff; color:#dc2626; font-weight:900; font-size:13px; text-align:right; border:1px solid #fca5a5; border-radius:6px;">
+    </div>
+    <!-- [ANCHOR:BILLING_NAKAD_END] -->
+
+    <div class="row">
+      <div class="suggest-wrap">
+        <label>Customer Name</label>
+        <input type="text" id="custName" placeholder="Ex: Sunita Devi" autocomplete="off" oninput="onCustNameInputType(this)" onfocus="onCustNameInputType(this)">
+        <div id="custNameSuggestBox" class="suggest-box"></div>
+      </div>
+      <div class="suggest-wrap">
+        <label>Gaon / City</label>
+        <input type="text" id="custVillage" placeholder="Ex: Niwari Kalan" autocomplete="off" oninput="onVillageInputType(this)" onfocus="onVillageInputType(this)">
+        <div id="villageSuggestBox" class="suggest-box"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="suggest-wrap">
+        <label>Mobile Number (WhatsApp)</label>
+        <input type="tel" id="custMobile" placeholder="Ex: 9876543210" maxlength="10" autocomplete="off" oninput="onCustMobileInputType(this)" onfocus="onCustMobileInputType(this)">
+        <div id="custMobileSuggestBox" class="suggest-box"></div>
+      </div>
+      <div>
+        <label>Payment Mode</label>
+        <select id="payMode" onchange="onPayModeChange()">
+          <option value="Cash">💵 Cash (Nagad)</option>
+          <option value="UPI">📱 PhonePe / UPI</option>
+          <option value="Split">💳 Cash + UPI (Split)</option>
+          <option value="AEPS Cash">🏦 Spice Money AEPS</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="splitPayRow" class="row" style="display:none; background:#eff6ff; padding:8px; border-radius:8px; margin-top:6px; border:1px solid #bfdbfe;">
+      <div>
+        <label style="margin:0; color:var(--green);">💵 Cash Mila (₹)</label>
+        <input type="number" id="splitCashInput" placeholder="Cash ₹" oninput="onSplitCashChange()">
+      </div>
+      <div>
+        <label style="margin:0; color:var(--blue);">📱 UPI Mila (₹)</label>
+        <input type="number" id="splitUpiInput" placeholder="UPI ₹" oninput="onSplitUpiChange()">
+      </div>
+    </div>
+
+    <div id="custPrevUdhaarBanner" class="udhaar-alert-banner"></div>
+
+    <div id="liveSplitBox" style="background:#fffbeb; padding:8px; border-radius:8px; margin-top:10px; font-size:12px; display:none;"></div>
+
+    <div class="row" style="margin-top:10px;">
+      <div style="flex:2;">
+        <button class="gold" style="margin:0;" onclick="finalizeBill()">✅ Bill Banayein & Chhapein</button>
+      </div>
+      <div style="flex:1;">
+        <button class="thermal" style="margin:0;" onclick="showLiveCounterUpiQr()">📱 UPI QR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRINT & WHATSAPP RECEIPT CARD -->
+  <div id="printCard" class="card" style="display:none;">
+    <div id="printZone"></div>
+    <div class="row" style="margin-top:10px;">
+      <div><button class="thermal" style="margin:0;" onclick="printDirect80mm()">🖨️ Smart Printer Print</button></div>
+      <div><button style="margin:0;" onclick="window.print()">🌐 Browser / PDF Print</button></div>
+    </div>
+    <div class="row" style="margin-top:6px;">
+      <div style="flex:1.6;"><button class="whatsapp" style="margin:0;" onclick="sendWhatsAppLastBill('IMAGE')">📸 WhatsApp Par Asli Bill (Photo) Bhejein</button></div>
+      <div style="flex:1;"><button class="dark" style="margin:0;" onclick="sendWhatsAppLastBill('DIRECT')">📝 Text WA</button></div>
+    </div>
+  </div>
+</div>
+<!-- [HTML-05: SECTION 1 - BILLING & CART END] -->
+
+<!-- =====================================================================
+     [HTML-06: SECTION 2 - STOCK MANAGEMENT START]
+     ===================================================================== -->
+<div id="stock" class="section">
+  <div class="card">
+    <h3>
+      <span>+ Nayi Saree / Set Stock Mein Jodein</span>
+      <button class="gold small" style="margin:0; padding:4px 9px; font-size:11px;" onclick="openBulkStockModal()">📊 Excel Bulk Add</button>
+    </h3>
+    <div class="row">
+      <div>
+        <label>Base Design Code</label>
+        <input type="text" id="sCode" placeholder="Ex: SC105" oninput="this.value = cleanCode(this.value)">
+      </div>
+      <div>
+        <label>Category</label>
+        <select id="sCat">
+          <option value="Daily Saree">Daily Wear Saree</option>
+          <option value="Fancy Saree">Fancy / Wedding Saree</option>
+          <option value="Petticoat">Petticoat</option>
+          <option value="Blouse/Fall">Blouse Piece / Fall</option>
+          <option value="Cosmetic">Cosmetic / Bangles</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- [ANCHOR:COLOR_HTML_START] -->
+    <div class="row">
+      <div style="flex:2.2">
+        <label>Colours (Ek ya Poore Set ke Colours)</label>
+        <input type="text" id="sColor" placeholder="Ex: Red, Yellow, Green" oninput="syncColorChipsUI()">
+      </div>
+      <div style="flex:0.8">
+        <label>Qty (Each)</label>
+        <input type="number" id="sQty" value="1">
+      </div>
+    </div>
+
+    <div>
+      <div class="palette-header">
+        <span>🎨 Colours Chunein (Tap = Add/Remove):</span>
+        <div class="palette-actions">
+          <span class="preset-link" onclick="applyPresetSet()">+ 6-Set</span>
+          <span class="clear-link" onclick="clearColorChips()">✕ Clear</span>
+        </div>
+      </div>
+      <div class="chip-wrap" id="colorPaletteGrid">
+        <span class="color-chip" data-col="Red" onclick="toggleColorChip('Red')"><i class="swatch-dot" style="background:#dc2626;"></i>Red</span>
+        <span class="color-chip" data-col="Rani Pink" onclick="toggleColorChip('Rani Pink')"><i class="swatch-dot" style="background:#ec4899;"></i>Rani Pink</span>
+        <span class="color-chip" data-col="Yellow" onclick="toggleColorChip('Yellow')"><i class="swatch-dot" style="background:#eab308;"></i>Yellow</span>
+        <span class="color-chip" data-col="Green" onclick="toggleColorChip('Green')"><i class="swatch-dot" style="background:#16a34a;"></i>Green</span>
+        <span class="color-chip" data-col="Maroon" onclick="toggleColorChip('Maroon')"><i class="swatch-dot" style="background:#7f1d1d;"></i>Maroon</span>
+        <span class="color-chip" data-col="Royal Blue" onclick="toggleColorChip('Royal Blue')"><i class="swatch-dot" style="background:#1d4ed8;"></i>Royal Blue</span>
+        <span class="color-chip" data-col="Rama" onclick="toggleColorChip('Rama')"><i class="swatch-dot" style="background:#06b6d4;"></i>Rama</span>
+        <span class="color-chip" data-col="Orange" onclick="toggleColorChip('Orange')"><i class="swatch-dot" style="background:#f97316;"></i>Orange</span>
+        <span class="color-chip" data-col="Purple" onclick="toggleColorChip('Purple')"><i class="swatch-dot" style="background:#7e22ce;"></i>Purple</span>
+        <span class="color-chip" data-col="Black" onclick="toggleColorChip('Black')"><i class="swatch-dot" style="background:#0f172a;"></i>Black</span>
+        <span class="color-chip" data-col="White" onclick="toggleColorChip('White')"><i class="swatch-dot" style="background:#ffffff;"></i>White</span>
+        <span class="color-chip" data-col="Golden" onclick="toggleColorChip('Golden')"><i class="swatch-dot" style="background:linear-gradient(135deg,#fde047,#ca8a04);"></i>Golden</span>
+        <span class="color-chip" id="multiTriggerChip" onclick="toggleMultiDrawer()"><i class="swatch-dot" style="background:conic-gradient(#ef4444,#eab308,#22c55e,#3b82f6,#a855f7,#ef4444);"></i>Colour Finder 🎨</span>
+      </div>
+
+      <!-- ACCURATE LAB/HSL SAREE COLOUR MATCHER -->
+      <div id="multiColorDrawer" class="multi-drawer">
+        <div class="multi-drawer-head">
+          <span>🎯 Accurate Saree Shade Matcher (36 Shades):</span>
+          <span class="clear-link" onclick="toggleMultiDrawer()">✕ Close</span>
+        </div>
+
+        <div class="wheel-matcher-box">
+          <div style="font-size:10.5px; color:#475569; margin-bottom:5px; font-weight:700;">
+            👇 Rang par ungli ghumayein — Neeche Top 3 Milte-Julte Saree Rang aayenge (Tap = Add):
+          </div>
+          <div class="wheel-canvas-wrap">
+            <canvas id="sareeSpectrumCanvas" width="340" height="130"></canvas>
+            <div id="spectrumPointer"></div>
+          </div>
+
+          <div class="top3-matches-wrap">
+            <div class="top3-title">
+              <span>✨ Top 3 Matching Saree Shades (Tap to Add):</span>
+              <span id="liveRgbBadge" style="font-weight:900; color:var(--maroon);">● Picked</span>
+            </div>
+            <div id="top3MatchesRow" class="top3-row"></div>
+          </div>
+
+          <button type="button" class="dark small" style="width:100%; margin-top:7px; padding:6px;" onclick="startCameraColorMatch()">📷 Camera + Torch se Saree Match Karein</button>
+          <div id="camColorWrap">
+            <div style="font-size:10px; color:#fde047; margin-bottom:4px;"> पीले चौकोर डिब्बे [ ] को साड़ी के प्लेन हिस्से पर रखें (जरी से दूर):</div>
+            <div class="cam-stage">
+              <video id="camColorVideo" autoplay playsinline></video>
+              <div class="cam-crosshair"></div>
+            </div>
+            <div class="row" style="margin-top:6px;">
+              <div style="flex:1.5;"><button type="button" class="gold small" style="width:100%; margin:0;" onclick="captureCameraSareeColor()">🎯 Scan Shade</button></div>
+              <div style="flex:1;"><button type="button" class="small" style="width:100%; margin:0; background:#334155;" onclick="toggleCameraTorch()">🔦 Torch</button></div>
+              <div style="flex:0.8;"><button type="button" class="small" style="width:100%; margin:0; background:#dc2626;" onclick="stopCameraColorMatch()">✕ Band</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size:10.5px; font-weight:800; color:var(--maroon-dark); margin-bottom:5px;">📋 All 24 Extra Saree Shades (Seedhe Tap Karein):</div>
+        <div class="multi-grid" id="extendedPaletteGrid"></div>
+      </div>
+    </div>
+    <!-- [ANCHOR:COLOR_HTML_END] -->
+
+    <div class="row" style="margin-top:6px;">
+      <div>
+        <label>Landing Cost (Asli Kharid ₹)</label>
+        <input type="number" id="sCost" placeholder="Ex: 210">
+      </div>
+      <div>
+        <label>Sticker MRP (Grahak Rate ₹)</label>
+        <input type="number" id="sMrp" placeholder="Ex: 380">
+      </div>
+    </div>
+
+    <div id="stockMsg" class="inline-msg"></div>
+
+    <button onclick="saveStockItem()">💾 Stock Mein Save Karein</button>
+  </div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px;">
+      <h3 style="margin:0; border:none; padding:0;">🔍 Available Stock & Dead-Stock Filter</h3>
+      <div>
+        <button class="whatsapp small" style="margin:0; padding:5px 8px; font-size:11px;" onclick="shareLowStockMandiList()">📝 Mandi List</button>
+        <button class="gold small" style="margin:0; padding:5px 9px; font-size:11px;" onclick="printAllStockTags()">🖨️ Tags Print</button>
+      </div>
+    </div>
+
+    <div class="filter-box">
+      <div class="row">
+        <div style="flex:1.4;">
+          <input type="text" id="fSearch" placeholder="🔍 Code, Colour ya MRP..." oninput="renderStock()" style="margin-top:0; padding:7px; font-size:12px;">
+        </div>
+        <div style="flex:1;">
+          <select id="fCat" onchange="renderStock()" style="margin-top:0; padding:7px; font-size:12px;">
+            <option value="ALL">All Categories</option>
+            <option value="Daily Saree">Daily Saree</option>
+            <option value="Fancy Saree">Fancy Saree</option>
+            <option value="Petticoat">Petticoat</option>
+            <option value="Blouse/Fall">Blouse/Fall</option>
+            <option value="Cosmetic">Cosmetic</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:6px;">
+        <div style="flex:1.4;">
+          <select id="fStatus" onchange="renderStock()" style="margin-top:0; padding:6px; font-size:12px;">
+            <option value="ALL">📦 Sabhi Stock</option>
+            <option value="INSTOCK">✅ Available (Qty > 0)</option>
+            <option value="LOW">⚠️ Kam Stock (1-2 Pcs)</option>
+            <option value="DEAD">🐢 Unsold / Dead Stock (0 Bikri)</option>
+            <option value="OUT">❌ Out of Stock (0)</option>
+          </select>
+        </div>
+        <div style="flex:1;">
+          <button class="dark" style="margin:0; padding:6px; font-size:11px;" onclick="resetStockFilters()">🔄 Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="stockSummaryBar" class="filter-summary"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Item & Colour</th>
+          <th>Cost</th>
+          <th>MRP</th>
+          <th>Qty</th>
+          <th style="text-align:right;">Action</th>
+        </tr>
+      </thead>
+      <tbody id="stockTableBody"></tbody>
+    </table>
+  </div>
+</div>
+<!-- [HTML-06: SECTION 2 - STOCK MANAGEMENT END] -->
+
+<!-- =====================================================================
+     [HTML-07: SECTION 3 - INSIGHTS, GALLA & EXPENSES START]
+     ===================================================================== -->
+<div id="stats" class="section">
+  <div class="card">
+    <h3>🔍 Verify / Exchange Bill (Bill No. ya Barcode Dalein)</h3>
+    <div class="row">
+      <div style="flex:2">
+        <input type="text" id="decodeInput" placeholder="Ex: INV101 ya 101" oninput="decodeAcc(this.value)">
+      </div>
+      <div style="flex:1">
+        <button style="margin:0;" onclick="decodeAcc(document.getElementById('decodeInput').value, true)">🔍 Khojein</button>
+      </div>
+      <div style="flex:1">
+        <button class="dark" style="margin:0;" onclick="startScanner('DECODE')">📷 Scan</button>
+      </div>
+    </div>
+    <div id="decodeResult" style="margin-top:10px; font-size:13px;"></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:6px; margin-bottom:8px; flex-wrap:wrap; gap:4px;">
+      <h3 style="margin:0; border:none; padding:0;">📊 Galla & Business Insights</h3>
+      <div>
+        <button id="btnFilterToday" class="small" style="background:var(--maroon); color:#fff;" onclick="setStatsFilter('TODAY')">📅 Aaj</button>
+        <button id="btnFilterDate" class="small" style="background:#e2e8f0; color:#334155;" onclick="setStatsFilter('DATE')">📆 Date</button>
+        <button id="btnFilterMonth" class="small" style="background:#e2e8f0; color:#334155;" onclick="setStatsFilter('MONTH')">🗓️ Month</button>
+        <button id="btnFilterAll" class="small" style="background:#e2e8f0; color:#334155;" onclick="setStatsFilter('ALL')">📊 Kul</button>
+      </div>
+    </div>
+
+    <div id="statsDatePickerWrap" style="display:none; margin-bottom:10px;">
+      <input type="date" id="statsDateInput" onchange="renderStats()" style="padding:7px; font-size:13px; margin:0;">
+    </div>
+    <div id="statsMonthPickerWrap" style="display:none; margin-bottom:10px;">
+      <input type="month" id="statsMonthInput" onchange="renderStats()" style="padding:7px; font-size:13px; margin:0;">
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-box"><span>Total Tay Bikri (ACC)</span><strong id="stAcc">₹0</strong></div>
+      <div class="stat-box"><span>Shuddh Munafa (Profit)</span><strong id="stProfit" style="color:var(--green);">₹0</strong></div>
+      <div class="stat-box"><span>Galla Mila (Bill + Vasooli)</span><strong id="stPaid" style="color:var(--green);">₹0</strong></div>
+      <div class="stat-box"><span>Market Mein Udhaar</span><strong id="stDue" style="color:var(--red);">₹0</strong></div>
+    </div>
+
+    <div id="gallaBreakdown" class="galla-bar">
+      <span>💵 Cash: ₹0</span>
+      <span>📱 UPI: ₹0</span>
+      <span>🏦 AEPS: ₹0</span>
+    </div>
+    <div id="gallaNetBar" class="galla-bar" style="background:#fffbeb; border:1px solid #fde68a; margin-top:5px;"></div>
+
+    <div style="margin-top:10px;">
+      <small style="color:var(--maroon); font-weight:800; font-size:11px;">📈 Pichhle 7 Dinon ki Bikri (7-Day Trend):</small>
+      <div id="sevenDayChart" class="trend-chart"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>☕ Rozana Dukaan Kharcha (Chai, Bhaada, Polythene)</h3>
+    <div class="row">
+      <div style="flex:1.8;">
+        <input type="text" id="expNote" placeholder="Kharcha (Ex: Chai, Auto Bhaada)" style="margin:0; padding:8px; font-size:13px;">
+      </div>
+      <div style="flex:1;">
+        <input type="number" id="expAmt" placeholder="₹ Rakam" style="margin:0; padding:8px; font-size:13px;">
+      </div>
+      <div style="flex:0.8;">
+        <button style="margin:0; padding:8px; font-size:12px;" onclick="addExpense()">+ Jodein</button>
+      </div>
+    </div>
+    <div id="expenseListBox" style="margin-top:8px; font-size:12px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>🎨 Top Bikne Wale Colours & Bill History</h3>
+    <div id="colorInsights" style="font-size:13px; margin-bottom:8px;"></div>
+    <small style="color:var(--maroon); font-weight:bold; display:block; margin-bottom:6px;">👇 Kisi bhi Bill par Tap karke dekhein, Asli Bill WA bhejein ya Exchange karein:</small>
+    <table>
+      <thead><tr><th>Bill#</th><th>Items (Real Rate)</th><th>ACC</th><th>Udhaar</th><th>Profit</th></tr></thead>
+      <tbody id="salesHistoryBody"></tbody>
+    </table>
+  </div>
+</div>
+<!-- [HTML-07: SECTION 3 - INSIGHTS, GALLA & EXPENSES END] -->
+
+<!-- =====================================================================
+     [HTML-08: SECTION 4 - CUSTOMER KHATA & DIRECTORY START]
+     ===================================================================== -->
+<div id="cust" class="section">
+  <div class="card">
+    <h3>📓 Customer Khata Book & Contact Directory</h3>
+    <label>Mobile Number, Naam Ya Gaon Dalein</label>
+    <div class="row">
+      <div style="flex:2">
+        <input type="text" id="searchMobile" placeholder="Mobile No., Naam ya Gaon likhein..." oninput="lookupCustomer(this.value)">
+      </div>
+      <div style="flex:1">
+        <button style="margin:0;" onclick="lookupCustomer(document.getElementById('searchMobile').value)">🔍 Search</button>
+      </div>
+    </div>
+    <div id="customerLedgerResult" style="margin-top:12px; font-size:12px;"></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px; margin-bottom:6px;">
+      <h3 style="margin:0; border:none; padding:0;">📋 Sabhi Customers & Udhaar List</h3>
+      <div>
+        <button id="custFilterAllBtn" class="small" style="background:var(--maroon); color:#fff; margin:0;" onclick="setCustFilter('ALL')">Sabhi</button>
+        <button id="custFilterDueBtn" class="small" style="background:#e2e8f0; color:#334155; margin:0;" onclick="setCustFilter('DUE')">⚠️ Sirf Udhaar</button>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Customer</th><th>Gaon</th><th>Kul Kharid</th><th>Baaki Udhaar</th><th style="text-align:right;">Action (Call/WA)</th></tr></thead>
+      <tbody id="allCustomersBody"></tbody>
+    </table>
+  </div>
+</div>
+<!-- [HTML-08: SECTION 4 - CUSTOMER KHATA & DIRECTORY END] -->
+
+<!-- =====================================================================
+     [HTML-09: SECTION 5 - COLOUR UI, PRINTER HUB & BACKUP START]
+     ===================================================================== -->
+<div id="backup" class="section">
+
+  <!-- COLOUR UI THEME SELECTOR -->
+  <div class="card">
+    <h3>🎨 App Colour UI Theme Chunein (5 Royal Themes)</h3>
+    <p style="font-size:11.5px; color:#475569; margin:0 0 6px 0;">Apni pasand ka Colour UI chunein (Upar header mein <b>🎨 UI</b> button se bhi badal sakte hain):</p>
+    <div class="theme-swatch-row">
+      <div id="swatch-INDIGO" class="theme-pill" style="background:linear-gradient(135deg,#1e1b4b,#4338ca);" onclick="applyAppTheme('INDIGO')">🌌 Royal Indigo</div>
+      <div id="swatch-EMERALD" class="theme-pill" style="background:linear-gradient(135deg,#064e3b,#059669);" onclick="applyAppTheme('EMERALD')">🦚 Emerald Green</div>
+      <div id="swatch-MAGENTA" class="theme-pill" style="background:linear-gradient(135deg,#500724,#be185d);" onclick="applyAppTheme('MAGENTA')">🌺 Silk Magenta</div>
+      <div id="swatch-TEAL" class="theme-pill" style="background:linear-gradient(135deg,#0f172a,#0f766e);" onclick="applyAppTheme('TEAL')">💎 Luxury Teal</div>
+      <div id="swatch-MAROON" class="theme-pill" style="background:linear-gradient(135deg,#47041b,#6b092b);" onclick="applyAppTheme('MAROON')">👑 Classic Maroon</div>
+    </div>
+  </div>
+
+  <!-- UNIVERSAL MARKET PRINTER HUB -->
+  <div class="card">
+    <h3>
+      <span>🖨️ Universal Printer Hub (All Market Printers)</span>
+      <span id="printerLiveBadge" class="printer-status-pill">⚡ RawBT Ready</span>
+    </h3>
+    <p style="font-size:11.5px; color:#475569; margin:0 0 8px 0;">
+      Bazaar mein milne wale sabhi <b>58mm (2"), 80mm (3"), 76mm Dot-Matrix, Barcode Label aur A4/A5 Laser/Inkjet</b> printers yahan se connect karein:
+    </p>
+
+    <div class="row">
+      <div>
+        <label>1. Market Printer Brand / Profile</label>
+        <select id="printerBrandProfile" onchange="onPrinterProfileChange()">
+          <option value="GENERIC_80">🖨️ 80mm Thermal POS (TVS / Retsol / Epson / Xprinter)</option>
+          <option value="MINI_58">📱 58mm Mini Bluetooth (Shreyans / Everycom / Rugtek)</option>
+          <option value="RAWBT_ANDROID">⚡ RawBT Android App Bridge (All Mobile Printers)</option>
+          <option value="DOT_76">🧾 76mm Impact / Dot-Matrix (Epson TM-U220 / TVS)</option>
+          <option value="A4_LASER">📄 A4 / A5 Full Shop Printer (HP / Canon / Brother Wi-Fi)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>2. Connection Method</label>
+        <select id="printerConnMode" onchange="savePrinterPrefs()">
+          <option value="RAWBT">⚡ RawBT App Bridge (Android Best)</option>
+          <option value="BLUETOOTH">🔵 Direct Bluetooth (Web BLE)</option>
+          <option value="USB">🔌 Direct USB Cable (OTG / PC WebUSB)</option>
+          <option value="SERIAL">🖥️ Direct Serial / COM Port (Desktop POS)</option>
+          <option value="NETWORK">🌐 Wi-Fi / LAN IP Thermal (Port 9100 / HTTP)</option>
+          <option value="BROWSER">🖨️ System / AirPrint / Mopria / PDF</option>
+        </select>
+      </div>
+      <div>
+        <label>3. Paper Size & Width</label>
+        <select id="printerPaperSize" onchange="savePrinterPrefs()">
+          <option value="80mm">80mm (3 Inch Roll - 48 Cols)</option>
+          <option value="58mm">58mm (2 Inch Roll - 32 Cols)</option>
+          <option value="76mm">76mm (Dot Matrix - 42 Cols)</option>
+          <option value="A5">A5 Half Page Counter Bill</option>
+          <option value="A4">A4 Full Page Invoice</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>4. Print Language / Format</label>
+        <select id="printerRenderMode" onchange="savePrinterPrefs()">
+          <option value="GRAPHIC">🖼️ Hindi + Barcode Graphic Mode (Sabse Saaf)</option>
+          <option value="ESCPOS">⚡ Fast ESC/POS Text Mode (High Speed English)</option>
+        </select>
+      </div>
+      <div>
+        <label>5. Extra Feed Lines (Margin)</label>
+        <select id="printerFeedLines" onchange="savePrinterPrefs()">
+          <option value="3">3 Lines (Standard)</option>
+          <option value="1">1 Line (Paper Bachayein)</option>
+          <option value="5">5 Lines (Tear Bar ke liye)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- NETWORK IP ROW -->
+    <div id="networkIpRow" class="row" style="display:none; background:#eff6ff; padding:8px; border-radius:8px; margin-top:8px; border:1px solid #bfdbfe;">
+      <div style="flex:2;">
+        <label style="margin:0; color:var(--blue);">🌐 Network Printer IP Address</label>
+        <input type="text" id="printerNetIp" placeholder="Ex: 192.168.1.100" oninput="savePrinterPrefs()">
+      </div>
+      <div style="flex:1;">
+        <label style="margin:0; color:var(--blue);">Port</label>
+        <input type="number" id="printerNetPort" value="9100" oninput="savePrinterPrefs()">
+      </div>
+    </div>
+
+    <div class="chk-row">
+      <label><input type="checkbox" id="chkAutoPrint" onchange="savePrinterPrefs()"> ⚡ Bill Bante Hi Auto-Print</label>
+      <label><input type="checkbox" id="chkAutoCut" checked onchange="savePrinterPrefs()"> ✂️ Auto Paper Cutter</label>
+      <label><input type="checkbox" id="chkCashDrawer" onchange="savePrinterPrefs()"> 💵 Open Cash Drawer (RJ11 Kick)</label>
+    </div>
+
+    <!-- HARDWARE PAIR & ACTION BUTTONS -->
+    <div class="printer-grid">
+      <button class="thermal" style="margin:0;" onclick="connectBluetoothPrinter()">🔵 Pair Bluetooth (BLE)</button>
+      <button class="dark" style="margin:0;" onclick="connectUsbPrinter()">🔌 Connect USB (OTG)</button>
+      <button class="dark" style="margin:0; background:#4338ca;" onclick="connectSerialPrinter()">🖥️ Connect Serial COM</button>
+      <button class="gold" style="margin:0;" onclick="testThermalPrinter()">🧾 Test Receipt Print</button>
+    </div>
+
+    <div id="printerStatusMsg" class="inline-msg"></div>
+  </div>
+
+  <!-- DYNAMIC UPI SETUP -->
+  <div class="card">
+    <h3>📱 Dynamic UPI QR Code Setup</h3>
+    <p style="font-size:12px; color:#475569; margin:0 0 6px 0;">Apna PhonePe / Paytm / GPay UPI ID yahan daalein. Har bill par exact rakam ka <b>Dynamic QR Code</b> ban jayega:</p>
+    <div class="row">
+      <div style="flex:2;">
+        <input type="text" id="merchantUpiInput" placeholder="Ex: 8780234760@ybl" style="margin:0;">
+      </div>
+      <div style="flex:1;">
+        <button class="gold" style="margin:0;" onclick="saveMerchantUpiId()">💾 Save UPI</button>
+      </div>
+    </div>
+    <div id="upiSaveMsg" class="inline-msg"></div>
+  </div>
+
+  <!-- OWNER PIN & STARTUP LOCK -->
+  <div class="card">
+    <h3>
+      <span>🔐 Owner Security PIN & Startup Lock</span>
+      <button id="startupLockToggleBtn" class="small" style="margin:0; background:#334155; color:#fff;" onclick="toggleStartupPinLock()">🔒 Startup Lock: OFF</button>
+    </h3>
+    <p style="font-size:12px; color:#475569; margin:0 0 8px 0;">Default Owner PIN <b>1234</b> hai. Tag par chhapne wala Secret Cost Code Key: <b>1=S, 2=H, 3=A, 4=K, 5=Y, 6=B, 7=C, 8=D, 9=E, 0=Z</b> (Ex: ₹190 = <b>SEZ</b>).</p>
+    <div class="row">
+      <div>
+        <input type="password" id="oldPinChange" placeholder="Purana PIN" maxlength="4" inputmode="numeric">
+      </div>
+      <div>
+        <input type="password" id="newPinChange" placeholder="Naya 4-ank PIN" maxlength="4" inputmode="numeric">
+      </div>
+      <div>
+        <button style="margin:0;" onclick="changeOwnerPin()">🔑 Save PIN</button>
+      </div>
+    </div>
+    <div id="pinChangeMsg" class="inline-msg"></div>
+  </div>
+
+  <!-- HYBRID BACKUP -->
+  <div class="card">
+    <h3>💾 Surakshit Hybrid Backup (Local + Cloud) & Excel</h3>
+    <p style="font-size:12px; color:#475569;">Data pehle aapke phone/browser (Local Storage) mein turant save hota hai aur internet milte hi Firebase Cloud (`shakyapos-default-rtdb`) par live sync ho jata hai.</p>
+    <div id="backupMsg" class="inline-msg"></div>
+    <button class="gold" onclick="exportSalesCSV()">📊 Download Sales Report (Excel .CSV)</button>
+    <button onclick="downloadBackupJSON()">⬇️ App Data Backup (.JSON)</button>
+
+    <hr style="margin:16px 0;">
+    <label>Purana Backup File (.JSON) Wapas Daalein (Restore):</label>
+    <input type="file" id="restoreFile" accept=".json" onchange="restoreBackupJSON(event)">
+  </div>
+</div>
+<!-- [HTML-09: SECTION 5 - COLOUR UI, PRINTER HUB & BACKUP END] -->
+
+<script src="src/features/settings/theme-engine.js"></script>
+<script src="src/services/firebase/database.js"></script>
+<script src="src/services/printing/printer-hub.js"></script>
+<script src="src/features/settings/settings.js"></script>
+<script src="src/app/navigation.js"></script>
+<script src="src/features/customers/customers.js"></script>
+<script src="src/features/inventory/inventory.js"></script>
+<script src="src/features/printing/tag-printing.js"></script>
+<script src="src/features/billing/cart.js"></script>
+<script src="src/features/billing/bill-calculations.js"></script>
+<script src="src/features/billing/checkout.js"></script>
+<script src="src/features/printing/whatsapp-share.js"></script>
+<script src="src/features/khata/khata.js"></script>
+<script src="src/features/expenses/expenses.js"></script>
+<script src="src/features/reports/reports.js"></script>
+<script src="src/features/backup/backup.js"></script>
+<!-- CUSTOM SELECT SHEET MODAL -->
+<div id="customSelectModal" onclick="if(event.target === this) closeCustomSelect()">
+  <div class="custom-select-sheet">
+    <div id="customSelectTitle" class="custom-select-title">Select Option</div>
+    <div id="customSelectOptionsList"></div>
+    <button class="dark" style="margin-top:12px; padding:9px;" onclick="closeCustomSelect()">Cancel</button>
+  </div>
+</div>
+
+
+<!-- === SHAKYA COSMETIC: EXCEL WINDOW, COLOR PALETTE & SCROLL LOCK FIX === -->
+
+<script src="src/features/inventory/stock-import.js"></script>
+<!-- === END SHAKYA COSMETIC FIX === -->
+
+
+
+<!-- === SHAKYA COSMETIC: TAB-WISE EXCEL CUSTOMIZER === -->
+
+<script src="src/features/settings/tab-customizer.js"></script>
+<!-- === END TAB-WISE CUSTOMIZER === -->
+<!-- === SHAKYA COSMETIC: WHOLESALE MANDI & MAHAJAN KHATA === -->
+
+<!-- MAHAJAN PAYMENT MODAL -->
+<div id="mandiPayModal">
+  <div class="dialog-box">
+    <h3 style="color:var(--maroon); margin-top:0;">💸 Mahajan Payment Darj Karein</h3>
+    <p id="mandiPayPartyInfo" style="font-size:12px; color:#555; margin:6px 0; font-weight:bold;"></p>
+    <label style="text-align:left;">Kitne Rupaye Diye (Paid ₹)?</label>
+    <input type="number" id="mandiPayAmtInput" placeholder="Amount (₹)" style="text-align:center; font-size:16px; font-weight:bold;">
+    <label style="text-align:left;">Payment Mode / Reference</label>
+    <select id="mandiPayModeInput">
+      <option value="UPI / PhonePe">📱 UPI / PhonePe</option>
+      <option value="Bank / NEFT / RTGS">🏦 Bank / NEFT / RTGS</option>
+      <option value="Cash (Nagad)">💵 Cash (Nagad Mandi)</option>
+      <option value="Angadia / Hawala">📦 Transport / Angadia</option>
+    </select>
+    <label style="text-align:left;">Note / UTR No. (Optional)</label>
+    <input type="text" id="mandiPayNoteInput" placeholder="Ex: Bill #204 ya UTR No.">
+    <div class="row" style="margin-top:12px;">
+      <div><button class="gold" style="margin:0;" onclick="confirmMahajanPayment(false)">✅ Sirf Save</button></div>
+      <div><button class="whatsapp" style="margin:0;" onclick="confirmMahajanPayment(true)">💬 Save + WA Slip</button></div>
+    </div>
+    <button class="dark" style="margin-top:8px; padding:7px;" onclick="closeMandiPayModal()">Cancel</button>
+  </div>
+</div>
+
+<!-- FULL MANDI INVOICE & GOODS ORIGIN MODAL -->
+<div id="mandiInvoiceModal">
+  <div class="dialog-box" style="max-width:460px; text-align:left; max-height:92vh; overflow-y:auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+      <h3 style="color:var(--maroon); margin:0;">🧾 Saved Mandi Bill Invoice & Goods</h3>
+      <button type="button" class="small dark" style="margin:0; padding:4px 9px;" onclick="closeMandiInvoiceModal()">✕ Close</button>
+    </div>
+
+    <div id="mandiInvoiceSheet"></div>
+
+    <div id="mandiInvoicePhotoSection" style="margin-top:10px; background:#f8fafc; border:1.5px dashed #64748b; border-radius:10px; padding:9px; text-align:center;">
+      <div style="font-size:11.5px; font-weight:800; color:var(--maroon-dark); margin-bottom:6px;">📸 Asli Mandi Parchi / Paper Bill Photo:</div>
+      <div id="mandiModalPhotoView"></div>
+      <input type="file" id="mandiModalPhotoInput" accept="image/*" style="display:none;" onchange="onModalInvoicePhotoSelected(event)">
+      <div class="row" style="margin-top:6px;">
+        <div><button type="button" class="small dark" style="width:100%; margin:0;" onclick="document.getElementById('mandiModalPhotoInput').click()">📷 Photo Jodein / Badlein</button></div>
+        <div id="mandiModalPhotoDlWrap" style="display:none;"><button type="button" class="small gold" style="width:100%; margin:0;" onclick="downloadOriginalMandiPhoto()">⬇️ Save Photo</button></div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div><button type="button" class="gold" style="margin:0; font-size:12px;" onclick="downloadDigitalMandiInvoice()">💾 Save Bill Invoice (Photo)</button></div>
+      <div><button type="button" class="whatsapp" style="margin:0; font-size:12px;" onclick="shareDigitalMandiInvoiceWA()">💬 Share Invoice WA</button></div>
+    </div>
+    <button type="button" class="thermal" style="margin-top:6px; font-size:12px;" onclick="addMoreGoodsToCurrentMandiBill()">📦 Is Bill Mein Aur Maal Jodein</button>
+  </div>
+</div>
+
+<datalist id="mahajanPartyList"></datalist>
+<datalist id="mahajanCityList">
+  <option value="Kanpur">
+  <option value="Surat">
+  <option value="Etawah">
+  <option value="Delhi Sadar">
+  <option value="Varanasi">
+  <option value="Agra">
+</datalist>
+
+<script src="src/features/mandi/mandi.js"></script>
+<!-- === END WHOLESALE MANDI & MAHAJAN KHATA === -->
+<!-- === SHAKYA COSMETIC: GRAHAK PASAND DIARY & BARGAIN TRAFFIC LIGHT === -->
+
+<!-- CHUDI SIZE & TASTE MEMORY MODAL -->
+<div id="shPasandModal">
+  <div class="dialog-box" style="max-width:350px; text-align:left;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <h3 style="color:#9d174d; margin:0;">⭕ Grahak Chudi Size & Pasand</h3>
+      <button type="button" class="small dark" style="margin:0; padding:3px 8px;" onclick="closeShPasandModal()">✕</button>
+    </div>
+    <div id="shPasandCustLabel" style="font-size:11.5px; font-weight:800; color:#475569; margin-bottom:8px;">Customer Profile</div>
+
+    <label style="margin-top:0;">1. Chudi / Bangle Size Chunein:</label>
+    <div class="sh-size-grid" id="shChudiSizeGrid">
+      <div class="sh-size-pill" data-sz="2-2" onclick="pickShChudiSize('2-2')">⭕ 2-2 <small style="font-weight:600;display:block;font-size:9px;">Small</small></div>
+      <div class="sh-size-pill" data-sz="2-4" onclick="pickShChudiSize('2-4')">⭕ 2-4 <small style="font-weight:600;display:block;font-size:9px;">Medium</small></div>
+      <div class="sh-size-pill" data-sz="2-6" onclick="pickShChudiSize('2-6')">⭕ 2-6 <small style="font-weight:600;display:block;font-size:9px;">Regular</small></div>
+      <div class="sh-size-pill" data-sz="2-8" onclick="pickShChudiSize('2-8')">⭕ 2-8 <small style="font-weight:600;display:block;font-size:9px;">Large</small></div>
+      <div class="sh-size-pill" data-sz="2-10" onclick="pickShChudiSize('2-10')">⭕ 2-10 <small style="font-weight:600;display:block;font-size:9px;">Extra Large</small></div>
+      <div class="sh-size-pill" data-sz="Kids" onclick="pickShChudiSize('Kids')">👧 Kids <small style="font-weight:600;display:block;font-size:9px;">Bachchon ka</small></div>
+    </div>
+
+    <label>2. Pasand / Saree & Blouse Note (Optional):</label>
+    <input type="text" id="shPasandNoteInput" placeholder="Ex: Dark colours, Fancy Saree, Blouse 38" style="margin-top:3px; font-size:12.5px;">
+
+    <div id="shAutoHistoryBox" style="margin-top:8px; padding:7px 9px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; font-size:11px; color:#334155;"></div>
+
+    <div class="row" style="margin-top:12px;">
+      <div><button type="button" class="dark" style="margin:0;" onclick="pickShChudiSize(''); saveShPasandProfile();">🧹 Clear</button></div>
+      <div style="flex:1.5;"><button type="button" class="gold" style="margin:0;" onclick="saveShPasandProfile()">💾 Save Pasand</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="src/features/customers/pasand-diary.js"></script>
+<!-- === END GRAHAK PASAND DIARY & BARGAIN TRAFFIC LIGHT === -->
+<!-- === SHAKYA COSMETIC: HIGH-CONTRAST POS BILL CART UI === -->
+
+<script src="src/features/billing/billing-ui.js"></script>
+<!-- === END HIGH-CONTRAST POS BILL CART UI === -->
+<!-- === SHAKYA COSMETIC: WHATSAPP STATUS SAREE POSTER GENERATOR === -->
+
+<!-- WHATSAPP STATUS POSTER STUDIO MODAL -->
+<div id="shPosterModal">
+  <div class="sh-poster-studio">
+    <div class="sh-ps-topbar">
+      <div class="sh-ps-title">🌟 WhatsApp Status Saree Poster Studio</div>
+      <button type="button" class="small dark" style="margin:0; padding:5px 10px; background:rgba(255,255,255,0.14); border:1px solid rgba(255,255,255,0.25);" onclick="closeShPosterModal()">✕ Close</button>
+    </div>
+
+    <div class="sh-ps-body">
+      <!-- STEP 1: PICK 1 TO 4 ITEMS FROM STOCK -->
+      <div class="sh-ps-ctrl-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <span class="sh-ps-lbl" style="margin:0;">1. Stock se 1 se 4 Items Chunein (Tap to Select):</span>
+          <input type="text" id="shPsSearchInp" placeholder="🔍 Code/Colour..." oninput="renderPosterStockChips()" style="width:120px; margin:0; padding:3px 7px; font-size:11px; height:26px;">
+        </div>
+        <div class="sh-ps-stock-chips" id="shPsStockChips"></div>
+      </div>
+
+      <!-- STEP 2: THEME & HEADLINE -->
+      <div class="sh-ps-ctrl-card">
+        <span class="sh-ps-lbl">2. Poster Colour Theme & Headline Chunein:</span>
+        <div class="sh-ps-pill-row" id="shPsThemeRow" style="margin-bottom:7px;">
+          <div class="sh-ps-pill active" onclick="setShPosterTheme('theme-maroon', this)">👑 Royal Maroon</div>
+          <div class="sh-ps-pill" onclick="setShPosterTheme('theme-indigo', this)">🌌 Boutique Indigo</div>
+          <div class="sh-ps-pill" onclick="setShPosterTheme('theme-rani', this)">🌺 Festive Rani Pink</div>
+        </div>
+
+        <div class="sh-ps-pill-row" id="shPsHeadlineRow" style="margin-bottom:7px;">
+          <div class="sh-ps-pill active" onclick="setShPosterHeadline('✨ आज का नया साड़ी कलेक्शन ✨', this)">✨ नया कलेक्शन</div>
+          <div class="sh-ps-pill" onclick="setShPosterHeadline('👰 शादी-लगन स्पेशल धमाका 👰', this)">👰 शादी-लगन स्पेशल</div>
+          <div class="sh-ps-pill" onclick="setShPosterHeadline('🎉 त्यौहार महा-ऑफर सेल 🎉', this)">🎉 त्यौहार ऑफर</div>
+          <div class="sh-ps-pill" onclick="setShPosterHeadline('💄 नया कॉस्मेटिक एवं चूड़ी स्टॉक 💄', this)">💄 कॉस्मेटिक स्पेशल</div>
+        </div>
+
+        <div class="row">
+          <div style="flex:1.2;">
+            <input type="text" id="shPsCustomHeadline" placeholder="Headline badlein..." value="✨ आज का नया साड़ी कलेक्शन ✨" oninput="renderLivePosterCard()" style="margin:0; padding:6px 8px; font-size:11.5px;">
+          </div>
+          <div style="flex:1;">
+            <input type="text" id="shPsCustomSubline" placeholder="Offer line..." value="सीमित स्टॉक • आज ही पधारें!" oninput="renderLivePosterCard()" style="margin:0; padding:6px 8px; font-size:11.5px;">
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE VERTICAL POSTER PREVIEW -->
+      <div style="font-size:10.5px; font-weight:800; color:#475569; text-align:center; margin-bottom:3px;">
+        👇 किसी भी साड़ी कार्ड पर टैप करके उसकी असली फोटो (📷 Camera/Gallery) भी लगा सकते हैं:
+      </div>
+      <input type="file" id="shPsItemPhotoInput" accept="image/*" style="display:none;" onchange="onPosterItemPhotoPicked(event)">
+
+      <div class="sh-poster-preview-wrap">
+        <div id="shPosterCanvasCard" class="theme-maroon">
+          <div class="sh-p-inner-frame">
+            <div>
+              <div class="sh-p-top-crest">
+                <div class="sh-p-didi-pill">✨ दीदी की दुकान ✨</div>
+                <h2 class="sh-p-shop-name">SHAKYA COSMETIC</h2>
+                <div class="sh-p-shop-sub">शाक्या कॉस्मेटिक एवं साड़ी कलेक्शन</div>
+              </div>
+
+              <div class="sh-p-headline-box">
+                <div class="sh-p-headline-txt" id="shPosterLiveHeadline">✨ आज का नया साड़ी कलेक्शन ✨</div>
+                <div class="sh-p-suboffer-txt" id="shPosterLiveSubline">सीमित स्टॉक • आज ही पधारें!</div>
+              </div>
+            </div>
+
+            <div id="shPosterItemsGrid" class="sh-p-grid count-2"></div>
+
+            <div class="sh-p-footer">
+              📍 राम दरा रोड, निवाड़ी कलां (इटावा)<br>
+              📞 WhatsApp / Call: <b>8780234760</b>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sh-ps-bottom-bar">
+      <button type="button" class="gold" style="margin:0; flex:1; font-size:12.5px;" onclick="exportPosterImage('DOWNLOAD')">
+        ⬇️ Save HD Poster
+      </button>
+      <button type="button" class="whatsapp" style="margin:0; flex:1.3; font-size:12.5px;" onclick="exportPosterImage('SHARE')">
+        📲 Share to WhatsApp Status
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="src/features/printing/wa-poster.js"></script>
+<!-- === END WHATSAPP STATUS SAREE POSTER GENERATOR === -->
+<!-- === SHAKYA COSMETIC: UDHAAR VAADA TARIKH & VILLAGE VASOOLI === -->
+
+<!-- VAADA TARIKH (PROMISE DATE) SETTER MODAL -->
+<div id="shVaadaModal">
+  <div class="dialog-box" style="max-width:350px; text-align:left;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+      <h3 style="color:var(--maroon); margin:0;">📅 उधार वादा तारीख (Promise Date)</h3>
+      <button type="button" class="small dark" style="margin:0; padding:3px 8px;" onclick="closeShVaadaModal()">✕</button>
+    </div>
+    <div id="shVaadaCustInfo" style="font-size:12px; font-weight:800; color:#334155; margin-bottom:8px;"></div>
+
+    <label style="margin-top:0;">1. 1-Tap Jaldi Tarikh Chunein:</label>
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; margin:6px 0 10px 0;">
+      <button type="button" class="small" style="margin:0; padding:7px 4px; background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1;" onclick="setModalVaadaOffset(3)">+3 Din</button>
+      <button type="button" class="small" style="margin:0; padding:7px 4px; background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1;" onclick="setModalVaadaOffset(7)">+7 Din</button>
+      <button type="button" class="small" style="margin:0; padding:7px 4px; background:#f1f5f9; color:#0f172a; border:1px solid #cbd5e1;" onclick="setModalVaadaOffset(15)">+15 Din</button>
+      <button type="button" class="small" style="margin:0; padding:7px 4px; background:#eef2ff; color:#312e81; border:1px solid #c7d2fe;" onclick="setModalVaadaFirstOfMonth()">1 Tarikh</button>
+    </div>
+
+    <label>2. Ya Calendar se Pakki Tarikh Chunein:</label>
+    <input type="date" id="shModalVaadaDateInput" style="margin-top:4px; font-size:14px; font-weight:800;">
+
+    <label>Note / Vaada Baat (Optional):</label>
+    <input type="text" id="shModalVaadaNoteInput" placeholder="Ex: Pension / Mandi aane par denge" style="margin-top:4px; font-size:12.5px;">
+
+    <div class="row" style="margin-top:12px;">
+      <div><button type="button" class="gold" style="margin:0;" onclick="saveCustomerVaadaDate(false)">💾 Sirf Save</button></div>
+      <div><button type="button" class="whatsapp" style="margin:0;" onclick="saveCustomerVaadaDate(true)">💬 Save + WA Msg</button></div>
+    </div>
+    <button type="button" class="dark" style="margin-top:7px; padding:6px; font-size:11.5px;" onclick="clearCustomerVaadaDate()">🧹 Vaada Tarikh Hatayein</button>
+  </div>
+</div>
+
+<script src="src/features/khata/vaada-vasooli.js"></script>
+<!-- === END UDHAAR VAADA TARIKH & VILLAGE VASOOLI === -->
+<!-- === SHAKYA COSMETIC: RACK LOCATION, TAG PRINT & FAST STOCK AUDIT === -->
+
+<!-- FAST PHYSICAL STOCK AUDIT & RACK VERIFICATION MODAL -->
+<div id="shAuditModal">
+  <div class="sh-audit-studio">
+    <div class="sh-au-topbar">
+      <div class="sh-au-title">📋 Fast Physical Stock & Rack Audit</div>
+      <div style="display:flex; gap:6px;">
+        <button type="button" class="small" style="margin:0; padding:5px 9px; background:#334155; color:#fff;" onclick="resetCurrentAuditCounts()">🔄 Reset Count</button>
+        <button type="button" class="small dark" style="margin:0; padding:5px 10px; background:rgba(255,255,255,0.14); border:1px solid rgba(255,255,255,0.25);" onclick="closeShAuditModal()">✕ Close</button>
+      </div>
+    </div>
+
+    <div class="sh-au-kpis">
+      <div class="sh-au-kpi"><small>System Qty</small><b id="auKpiSys">0 Pcs</b></div>
+      <div class="sh-au-kpi"><small>Gina Gaya</small><b id="auKpiPhy" style="color:#38bdf8;">0 Pcs</b></div>
+      <div class="sh-au-kpi"><small>Kam / Gayab</small><b id="auKpiMissing" style="color:#f87171;">0 Pcs</b></div>
+      <div class="sh-au-kpi"><small>Extra / Faltu</small><b id="auKpiExtra" style="color:#4ade80;">0 Pcs</b></div>
+    </div>
+
+    <div class="sh-au-controls">
+      <div class="row" style="gap:6px;">
+        <div style="flex:1.1;">
+          <select id="auRackFilterSel" onchange="onAuditRackFilterChange()" style="margin:0; padding:7px; font-size:12px; font-weight:800; border:1.5px solid var(--maroon); background:#fff;">
+            <option value="ALL">🗄️ Sabhi Racks (Full Shop)</option>
+          </select>
+        </div>
+        <div style="flex:1.3;">
+          <input type="text" id="auScanCodeInp" placeholder="Code scan/type + Enter..." oninput="this.value=cleanCode(this.value); renderAuditList();" onkeydown="if(event.key==='Enter') auditCountByCodeInput()" style="margin:0; padding:7px 9px; font-size:12.5px; font-weight:800;">
+        </div>
+        <div style="flex:0.75;">
+          <button type="button" class="gold" style="margin:0; padding:7px 6px; font-size:11.5px;" onclick="startAuditCameraScanner()">📷 Scan</button>
+        </div>
+      </div>
+
+      <div id="auLiveScanAlert" class="sh-au-alert-banner"></div>
+
+      <div class="sh-au-filter-tabs">
+        <button type="button" id="auTabAll" class="sh-au-ftab active" onclick="setAuditViewTab('ALL')">📋 Sabhi (<span id="auCntAll">0</span>)</button>
+        <button type="button" id="auTabDiff" class="sh-au-ftab" onclick="setAuditViewTab('DIFF')">⚠️ Antar / Gayab (<span id="auCntDiff">0</span>)</button>
+        <button type="button" id="auTabMatch" class="sh-au-ftab" onclick="setAuditViewTab('MATCH')">✅ Barabar (<span id="auCntMatch">0</span>)</button>
+      </div>
+    </div>
+
+    <div class="sh-au-list" id="auItemsListContainer"></div>
+
+    <div class="sh-au-footer">
+      <button type="button" class="whatsapp" style="margin:0; flex:1; font-size:12px;" onclick="shareAuditReportWA()">
+        📲 WA Audit Report
+      </button>
+      <button type="button" class="gold" style="margin:0; flex:1.35; font-size:12px;" onclick="applyAuditCountsToInventory()">
+        💾 Asli Count Stock Mein Save Karein
+      </button>
+    </div>
+  </div>
+</div>
+
+<datalist id="shakyaRackList">
+  <option value="R-1">Rack 1 (Daily Saree)</option>
+  <option value="R-2">Rack 2 (Daily Saree)</option>
+  <option value="R-3">Rack 3 (Fancy Saree)</option>
+  <option value="R-4">Rack 4 (Wedding/Silk)</option>
+  <option value="C-1">Counter 1 (Cosmetic)</option>
+  <option value="C-2">Counter 2 (Chudi/Bangles)</option>
+  <option value="B-1">Box / Petti 1</option>
+  <option value="G-1">Godown / Upar</option>
+</datalist>
+
+<script src="src/features/inventory/stock-adjustments.js"></script>
+<!-- === END RACK LOCATION, TAG PRINT & FAST STOCK AUDIT === -->
+
+
+<!-- === SHAKYA COSMETIC: FIXED QR SCANNER, QUEUE SCAN MODE & COMBO === -->
+
+<!-- SHAADI / TYOHAAR COMBO & LAGAN TROUSSEAU BUILDER MODAL -->
+<div id="shComboModal">
+  <div class="sh-combo-dialog">
+    <div class="sh-cb-header">
+      <div class="sh-cb-title">🎁 शादी / लगन एवं त्योहार कॉम्बो पैक</div>
+      <button type="button" class="small dark" style="margin:0; padding:4px 9px; background:rgba(255,255,255,0.18);" onclick="closeShComboModal()">✕ Band</button>
+    </div>
+
+    <div class="sh-cb-body">
+      <div style="font-size:11px; font-weight:800; color:#78350f; margin-bottom:5px;">
+        👇 1-Tap रेडीमेड दुकान कॉम्बो चुनें (या नीचे आइटम बदलें):
+      </div>
+
+      <div class="sh-cb-presets">
+        <div class="sh-cb-preset-card active" id="cbPreset_READY_SAREE" onclick="loadComboPreset('READY_SAREE')">
+          <div>
+            <div class="sh-cb-preset-title">✨ साड़ी + पेटीकोट + फॉल-पिको सेट</div>
+            <div class="sh-cb-preset-sub">1 साड़ी + मैचिंग पेटीकोट + ब्लाउज/फॉल-पिको रेडी पैक</div>
+          </div>
+          <span class="sh-cb-preset-badge">🔥 फॉल-पिको FREE ऑफर</span>
+        </div>
+
+        <div class="sh-cb-preset-card" id="cbPreset_LAGAN_SHAGUN" onclick="loadComboPreset('LAGAN_SHAGUN')">
+          <div>
+            <div class="sh-cb-preset-title">👰 लगन / विदाई शगुन सुहाग सेट</div>
+            <div class="sh-cb-preset-sub">फैंसी साड़ी + पेटीकोट + फॉल-पिको + सुहाग चूड़ी + मेकअप शगुन</div>
+          </div>
+          <span class="sh-cb-preset-badge">💎 ₹130 शगुन छूट</span>
+        </div>
+
+        <div class="sh-cb-preset-card" id="cbPreset_LEN_DEN_5" onclick="loadComboPreset('LEN_DEN_5')">
+          <div>
+            <div class="sh-cb-preset-title">🎉 5 साड़ी लेन-देन (रिश्तेदारी) पैक</div>
+            <div class="sh-cb-preset-sub">शादी में रिश्तेदारों को देने के लिए 5 साड़ियों का बंडल</div>
+          </div>
+          <span class="sh-cb-preset-badge">🎁 बंडल थोक छूट</span>
+        </div>
+
+        <div class="sh-cb-preset-card" id="cbPreset_BRIDAL_COS" onclick="loadComboPreset('BRIDAL_COS')">
+          <div>
+            <div class="sh-cb-preset-title">💄 दुल्हन सुहाग & कॉस्मेटिक किट</div>
+            <div class="sh-cb-preset-sub">चूड़ी सेट + सिंदूर/बिंदी + लिपस्टिक + फेशियल/मेकअप किट</div>
+          </div>
+          <span class="sh-cb-preset-badge">✨ कॉस्मेटिक कॉम्बो</span>
+        </div>
+      </div>
+
+      <div style="background:#ffffff; border:1.5px solid #cbd5e1; border-radius:9px; padding:7px 9px; margin-bottom:8px;">
+        <div style="font-size:10.5px; font-weight:900; color:var(--maroon); margin-bottom:4px;">
+          👗 स्टॉक में से असली साड़ी कॉम्बो में जोड़ें (Stock Qty भी अपने-आप घटेगी):
+        </div>
+        <div class="row" style="gap:6px;">
+          <div style="flex:1.8;">
+            <select id="cbStockSareeSel" style="margin:0; padding:5px 7px; font-size:11.5px; font-weight:800; height:32px;">
+              <option value="">-- स्टॉक से साड़ी चुनें (Optional) --</option>
+            </select>
+          </div>
+          <div style="flex:0.85;">
+            <button type="button" class="gold" style="margin:0; padding:5px 8px; height:32px; font-size:11px;" onclick="insertSelectedStockIntoCombo()">+ कॉम्बो में डालें</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+        <span style="font-size:11px; font-weight:900; color:#1e293b;">📦 कॉम्बो में शामिल आइटम:</span>
+        <button type="button" class="small" style="margin:0; padding:3px 8px; font-size:10.5px; background:#0f172a; color:#fde047;" onclick="addBlankComboRow()">+ एक और आइटम जोड़ें</button>
+      </div>
+
+      <div id="cbItemsContainer"></div>
+
+      <div class="sh-cb-summary">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+          <span>कुल अलग-अलग रेट (Total MRP):</span>
+          <b id="cbTotalMrpTxt" style="font-size:14px; text-decoration:line-through; color:#cbd5e1;">₹0</b>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; gap:10px;">
+          <div>
+            <div style="font-size:12.5px; font-weight:900; color:#fde047;">🎯 स्पेशल कॉम्बो पैकेज रेट (₹):</div>
+            <div id="cbSavingsBadge" style="font-size:10.5px; color:#a7f3d0; font-weight:800; margin-top:1px;">ग्राहक की बचत: ₹0</div>
+          </div>
+          <input type="number" id="cbPackagePriceInp" oninput="onComboPackagePriceEdit()" style="width:115px; margin:0; padding:6px 8px; font-size:16px; font-weight:900; color:#0f172a; background:#fde047; border:2px solid #ffffff; border-radius:8px; text-align:right;">
+        </div>
+      </div>
+    </div>
+
+    <div class="sh-cb-footer">
+      <button type="button" class="dark" style="margin:0; flex:0.75; font-size:12px;" onclick="closeShComboModal()">Cancel</button>
+      <button type="button" class="gold" style="margin:0; flex:1.55; font-size:12.5px; background:linear-gradient(135deg,#059669,#047857); color:#fff;" onclick="commitComboToBillCart()">
+        🛒 पूरा कॉम्बो बिल में जोड़ें
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden File Input for Camera/Photo QR Scan Fallback -->
+<input type="file" id="shQrImageFallbackInp" accept="image/*" capture="environment" style="display:none;" onchange="handleFallbackQrPhoto(this)">
+<div id="shQrTempFileReader" style="display:none;"></div>
+
+<script src="src/features/scanner/scanner.js"></script>
+<script src="src/features/billing/billing.js"></script>
+<!-- === END FIXED QR SCANNER, QUEUE SCAN MODE & COMBO === -->
+<!-- [SHAKYA-IMMORTAL-LOCAL-SW-V1 START] -->
+<script src="src/app/local-sw-keepalive.js"></script>
+<!-- [SHAKYA-IMMORTAL-LOCAL-SW-V1 END] -->
+
+<!-- [PHASE-M7: PRODUCTION RESILIENCE SERVICES START] -->
+<script src="src/services/storage/atomic-wal.js"></script>
+<script src="src/features/scanner/hardware-gun-battery.js"></script>
+<script src="src/services/sync/conflict-resolution.js"></script>
+<script src="src/services/sync/sync-manager.js"></script>
+<script src="src/services/storage/local-storage.js"></script>
+<!-- [PHASE-M7: PRODUCTION RESILIENCE SERVICES END] -->
+</body>
+</html>

@@ -1,0 +1,168 @@
+/* Extracted from <!-- === SHAKYA COSMETIC: GRAHAK PASAND DIARY & BARGAIN TRAFFIC LIGHT === --> */
+.sh-traffic-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 900;
+    cursor: pointer;
+    user-select: none;
+    border: 1.5px solid #cbd5e1;
+    background: #f8fafc;
+    color: #1e293b;
+    transition: all 0.18s ease;
+  }
+  .sh-traffic-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .sh-traffic-pill.zone-green {
+    background: #ecfdf5;
+    border-color: #34d399;
+    color: #065f46;
+  }
+  .sh-traffic-pill.zone-green .sh-traffic-dot {
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981;
+  }
+  .sh-traffic-pill.zone-yellow {
+    background: #fffbeb;
+    border-color: #fbbf24;
+    color: #92400e;
+  }
+  .sh-traffic-pill.zone-yellow .sh-traffic-dot {
+    background: #f59e0b;
+    box-shadow: 0 0 6px #f59e0b;
+  }
+  .sh-traffic-pill.zone-orange {
+    background: #fff7ed;
+    border-color: #fb923c;
+    color: #9a3412;
+  }
+  .sh-traffic-pill.zone-orange .sh-traffic-dot {
+    background: #f97316;
+    box-shadow: 0 0 6px #f97316;
+  }
+  .sh-traffic-pill.zone-red {
+    background: #fef2f2;
+    border-color: #f87171;
+    color: #991b1b;
+    animation: shPulseRed 0.9s infinite alternate;
+  }
+  .sh-traffic-pill.zone-red .sh-traffic-dot {
+    background: #ef4444;
+    box-shadow: 0 0 8px #ef4444;
+  }
+  @keyframes shPulseRed {
+    from { transform: scale(1); }
+    to { transform: scale(1.04); }
+  }
+
+  #shTrafficPeekBar {
+    display: none;
+    margin-top: 6px;
+    padding: 7px 10px;
+    border-radius: 9px;
+    background: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #fbbf24;
+    font-size: 11px;
+    font-weight: 700;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  #shGrahakPasandStrip {
+    margin-top: 7px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    background: linear-gradient(90deg, #fdf2f8 0%, #eef2ff 100%);
+    border: 1px solid #fbcfe8;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+  .sh-chudi-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #be185d;
+    color: #ffffff;
+    font-weight: 900;
+    font-size: 10.5px;
+    padding: 2.5px 8px;
+    border-radius: 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .sh-chudi-badge.empty {
+    background: #ffffff;
+    color: #9d174d;
+    border: 1px dashed #f472b6;
+  }
+  .sh-taste-text {
+    color: #312e81;
+    font-weight: 700;
+    font-size: 10.5px;
+    flex: 1;
+    min-width: 140px;
+  }
+
+  #shPasandModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.78);
+    z-index: 1400;
+    padding: 14px;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(2.5px);
+  }
+  .sh-size-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
+    margin: 8px 0 10px 0;
+  }
+  .sh-size-pill {
+    padding: 9px 6px;
+    border-radius: 9px;
+    background: #f8fafc;
+    border: 1.5px solid #cbd5e1;
+    font-size: 12.5px;
+    font-weight: 900;
+    color: #1e293b;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+  }
+  .sh-size-pill.active {
+    background: #be185d;
+    color: #ffffff;
+    border-color: #831843;
+    box-shadow: 0 2px 8px rgba(190, 24, 93, 0.25);
+  }
+
+  .sh-khata-chudi-tag {
+    display: inline-block;
+    margin-top: 2px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: #fdf2f8;
+    border: 1px solid #f9a8d4;
+    color: #9d174d;
+    font-size: 9.5px;
+    font-weight: 800;
+    cursor: pointer;
+  }

@@ -1,0 +1,356 @@
+// src/services/printing/printer-hub.js — Universal Market Printer Hub (58mm/80mm/RawBT)
+// [JS-02: UNIVERSAL MARKET PRINTER HUB ENGINE START]
+  // =====================================================================
+  let btDevice = null, btChar = null;
+  let usbDevice = null, usbEndpoint = null;
+  let serialPort = null, serialWriter = null;
+
+  let printerPrefs = JSON.parse(localStorage.getItem('sc_printer_prefs') || JSON.stringify({
+    profile: 'GENERIC_80',
+    mode: 'RAWBT',
+    size: '80mm',
+    render: 'GRAPHIC',
+    feed: 3,
+    netIp: '',
+    netPort: 9100,
+    autoPrint: false,
+    autoCut: true,
+    cashDrawer: false
+  }));
+
+  function initPrinterSettingsUI() {
+    const profEl = document.getElementById('printerBrandProfile');
+    const modeEl = document.getElementById('printerConnMode');
+    const sizeEl = document.getElementById('printerPaperSize');
+    const rendEl = document.getElementById('printerRenderMode');
+    const feedEl = document.getElementById('printerFeedLines');
+    const ipEl = document.getElementById('printerNetIp');
+    const portEl = document.getElementById('printerNetPort');
+    const chkAuto = document.getElementById('chkAutoPrint');
+    const chkCut = document.getElementById('chkAutoCut');
+    const chkDraw = document.getElementById('chkCashDrawer');
+
+    if (profEl) profEl.value = printerPrefs.profile || 'GENERIC_80';
+    if (modeEl) modeEl.value = printerPrefs.mode || 'RAWBT';
+    if (sizeEl) sizeEl.value = printerPrefs.size || '80mm';
+    if (rendEl) rendEl.value = printerPrefs.render || 'GRAPHIC';
+    if (feedEl) feedEl.value = String(printerPrefs.feed || 3);
+    if (ipEl) ipEl.value = printerPrefs.netIp || '';
+    if (portEl) portEl.value = printerPrefs.netPort || 9100;
+    if (chkAuto) chkAuto.checked = !!printerPrefs.autoPrint;
+    if (chkCut) chkCut.checked = printerPrefs.autoCut !== false;
+    if (chkDraw) chkDraw.checked = !!printerPrefs.cashDrawer;
+
+    const netRow = document.getElementById('networkIpRow');
+    if (netRow) netRow.style.display = printerPrefs.mode === 'NETWORK' ? 'flex' : 'none';
+
+    applyPaperSizeCSS(printerPrefs.size || '80mm');
+    updatePrinterHeaderBadge();
+  }
+
+  function onPrinterProfileChange() {
+    const prof = document.getElementById('printerBrandProfile').value;
+    if (prof === 'MINI_58') {
+      document.getElementById('printerPaperSize').value = '58mm';
+      document.getElementById('printerConnMode').value = 'BLUETOOTH';
+    } else if (prof === 'GENERIC_80') {
+      document.getElementById('printerPaperSize').value = '80mm';
+    } else if (prof === 'RAWBT_ANDROID') {
+      document.getElementById('printerConnMode').value = 'RAWBT';
+    } else if (prof === 'DOT_76') {
+      document.getElementById('printerPaperSize').value = '76mm';
+      document.getElementById('printerRenderMode').value = 'ESCPOS';
+    } else if (prof === 'A4_LASER') {
+      document.getElementById('printerPaperSize').value = 'A4';
+      document.getElementById('printerConnMode').value = 'BROWSER';
+    }
+    savePrinterPrefs();
+  }
+
+  function applyPaperSizeCSS(size) {
+    const pz = document.getElementById('printZone');
+    const pageStyle = document.getElementById('dynamicPrintPageStyle');
+    if (!pz) return;
+    if (size === '58mm') {
+      pz.style.maxWidth = '210px';
+      if (pageStyle) pageStyle.innerHTML = '@page { size: 58mm auto; margin: 0mm; } @media print { #printZone { width: 54mm !important; max-width: 54mm !important; } }';
+    } else if (size === '76mm') {
+      pz.style.maxWidth = '275px';
+      if (pageStyle) pageStyle.innerHTML = '@page { size: 76mm auto; margin: 0mm; } @media print { #printZone { width: 72mm !important; max-width: 72mm !important; } }';
+    } else if (size === 'A5') {
+      pz.style.maxWidth = '420px';
+      if (pageStyle) pageStyle.innerHTML = '@page { size: A5 portrait; margin: 5mm; } @media print { #printZone { width: 135mm !important; max-width: 135mm !important; } }';
+    } else if (size === 'A4') {
+      pz.style.maxWidth = '540px';
+      if (pageStyle) pageStyle.innerHTML = '@page { size: A4 portrait; margin: 8mm; } @media print { #printZone { width: 190mm !important; max-width: 190mm !important; } }';
+    } else {
+      pz.style.maxWidth = '300px';
+      if (pageStyle) pageStyle.innerHTML = '@page { size: 80mm auto; margin: 0mm; } @media print { #printZone { width: 76mm !important; max-width: 76mm !important; } }';
+    }
+  }
+
+  function updatePrinterHeaderBadge() {
+    const btn = document.getElementById('printerHeaderBtn');
+    const pill = document.getElementById('printerLiveBadge');
+    let label = `🖨️ ${printerPrefs.size} • ${printerPrefs.mode}`;
+    let bg = 'rgba(255,255,255,0.14)';
+
+    if (btChar) {
+      label = `🟢 BT: ${(btDevice?.name || 'Ready').slice(0, 9)}`;
+      bg = '#059669';
+    } else if (usbDevice) {
+      label = `🟢 USB: Ready`;
+      bg = '#059669';
+    } else if (serialWriter) {
+      label = `🟢 COM: Ready`;
+      bg = '#059669';
+    }
+    if (btn) {
+      btn.innerHTML = label;
+      btn.style.background = bg;
+    }
+    if (pill) {
+      pill.innerHTML = label;
+    }
+  }
+
+  function openPrinterSettingsTab() {
+    const tabEl = document.getElementById('tab-backup');
+    if (tabEl) switchTab('backup', tabEl);
+  }
+
+  function savePrinterPrefs() {
+    printerPrefs.profile = document.getElementById('printerBrandProfile')?.value || 'GENERIC_80';
+    printerPrefs.mode = document.getElementById('printerConnMode')?.value || 'RAWBT';
+    printerPrefs.size = document.getElementById('printerPaperSize')?.value || '80mm';
+    printerPrefs.render = document.getElementById('printerRenderMode')?.value || 'GRAPHIC';
+    printerPrefs.feed = parseInt(document.getElementById('printerFeedLines')?.value) || 3;
+    printerPrefs.netIp = (document.getElementById('printerNetIp')?.value || '').trim();
+    printerPrefs.netPort = parseInt(document.getElementById('printerNetPort')?.value) || 9100;
+    printerPrefs.autoPrint = !!document.getElementById('chkAutoPrint')?.checked;
+    printerPrefs.autoCut = !!document.getElementById('chkAutoCut')?.checked;
+    printerPrefs.cashDrawer = !!document.getElementById('chkCashDrawer')?.checked;
+
+    const netRow = document.getElementById('networkIpRow');
+    if (netRow) netRow.style.display = printerPrefs.mode === 'NETWORK' ? 'flex' : 'none';
+
+    localStorage.setItem('sc_printer_prefs', JSON.stringify(printerPrefs));
+    applyPaperSizeCSS(printerPrefs.size);
+    updatePrinterHeaderBadge();
+    showInlineMsg('printerStatusMsg', `✅ Printer Settings (${printerPrefs.size} • ${printerPrefs.mode}) save ho gayi!`, 'success');
+  }
+
+  async function connectBluetoothPrinter() {
+    if (!navigator.bluetooth) {
+      showInlineMsg('printerStatusMsg', '⚠️ Web Bluetooth ke liye Android/PC Chrome use karein ya RawBT mode chunein.', 'error');
+      return;
+    }
+    try {
+      btDevice = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [
+          '000018f0-0000-1000-8000-00805f9b34fb',
+          'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+          '0000ff00-0000-1000-8000-00805f9b34fb',
+          '0000ffe0-0000-1000-8000-00805f9b34fb'
+        ]
+      });
+      const server = await btDevice.gatt.connect();
+      const services = await server.getPrimaryServices();
+      btChar = null;
+      for (const srv of services) {
+        const chars = await srv.getCharacteristics();
+        for (const ch of chars) {
+          if (ch.properties.write || ch.properties.writeWithoutResponse) {
+            btChar = ch;
+            break;
+          }
+        }
+        if (btChar) break;
+      }
+      if (btChar) {
+        document.getElementById('printerConnMode').value = 'BLUETOOTH';
+        savePrinterPrefs();
+        playPosBeep(1020, 0.09);
+        showInlineMsg('printerStatusMsg', `✅ Bluetooth Printer "${btDevice.name || 'Thermal'}" connect ho gaya!`, 'success');
+      } else {
+        showInlineMsg('printerStatusMsg', '⚠️ Printer mila par BLE write channel nahi mila. RawBT mode chunein.', 'error');
+      }
+    } catch (err) {
+      showInlineMsg('printerStatusMsg', '❌ Bluetooth connect cancel ya fail hua: ' + (err.message || ''), 'error');
+    }
+  }
+
+  async function connectUsbPrinter() {
+    if (!navigator.usb) {
+      showInlineMsg('printerStatusMsg', '⚠️ USB OTG ke liye Android/PC Chrome browser use karein.', 'error');
+      return;
+    }
+    try {
+      usbDevice = await navigator.usb.requestDevice({ filters: [] });
+      await usbDevice.open();
+      if (usbDevice.configuration === null) await usbDevice.selectConfiguration(1);
+      await usbDevice.claimInterface(0);
+      const intf = usbDevice.configuration.interfaces[0].alternates[0];
+      const ep = intf.endpoints.find(e => e.direction === 'out');
+      usbEndpoint = ep ? ep.endpointNumber : 1;
+      document.getElementById('printerConnMode').value = 'USB';
+      savePrinterPrefs();
+      playPosBeep(1020, 0.09);
+      showInlineMsg('printerStatusMsg', '✅ USB Thermal Printer connect ho gaya!', 'success');
+    } catch (err) {
+      showInlineMsg('printerStatusMsg', '❌ USB Printer connect nahi hua: ' + (err.message || ''), 'error');
+    }
+  }
+
+  async function connectSerialPrinter() {
+    if (!navigator.serial) {
+      showInlineMsg('printerStatusMsg', '⚠️ Serial COM Port ke liye Desktop Chrome/Edge use karein.', 'error');
+      return;
+    }
+    try {
+      serialPort = await navigator.serial.requestPort();
+      await serialPort.open({ baudRate: 9600 });
+      serialWriter = serialPort.writable.getWriter();
+      document.getElementById('printerConnMode').value = 'SERIAL';
+      savePrinterPrefs();
+      playPosBeep(1020, 0.09);
+      showInlineMsg('printerStatusMsg', '✅ Serial COM Port Printer connect ho gaya!', 'success');
+    } catch (err) {
+      showInlineMsg('printerStatusMsg', '❌ Serial Port connect nahi hua: ' + (err.message || ''), 'error');
+    }
+  }
+
+  function buildEscPosBytes(sale) {
+    const enc = new TextEncoder();
+    const s = sale || lastSavedSale || {
+      invId: 'TEST-101', date: new Date().toLocaleDateString('hi-IN'),
+      cust: 'Test Customer', village: 'Niwari Kalan', mobile: '9876543210', mode: 'Cash',
+      totalMrp: 350, acc: 350, paid: 350, due: 0,
+      items: [{ code: 'SC101R', cat: 'Daily Saree', color: 'Red', qty: 1, mrp: 350 }]
+    };
+    const cols = printerPrefs.size === '58mm' ? 32 : (printerPrefs.size === '76mm' ? 42 : 48);
+    const div = '-'.repeat(cols) + '\n';
+    let cmd = '\x1B\x40';
+    if (printerPrefs.cashDrawer) {
+      cmd += '\x1B\x70\x00\x19\xFA';
+    }
+    cmd += '\x1B\x61\x01';
+    cmd += '\x1B\x45\x01DIDI KI DUKAN\nSHAKYA COSMETIC & SAREE\x1B\x45\x00\n';
+    cmd += 'Niwari Kalan, Etawah | 8780234760\n' + div;
+    cmd += '\x1B\x61\x00';
+    cmd += `Bill: ${s.invId} | Date: ${s.date}\n`;
+    cmd += `Cust: ${s.cust} (${s.village || 'Niwari'})\n` + div;
+    (s.items || []).filter(i => !i.returned).forEach(i => {
+      const lineL = `${i.code} ${i.cat}(${i.color}) x${i.qty}`;
+      const lineR = `Rs.${i.mrp * i.qty}`;
+      const spaces = Math.max(1, cols - lineL.length - lineR.length);
+      cmd += lineL + ' '.repeat(spaces) + lineR + '\n';
+    });
+    cmd += div + '\x1B\x61\x01\x1B\x45\x01';
+    cmd += `TOTAL MRP: Rs.${s.totalMrp} | TAY: Rs.${s.acc}\x1B\x45\x00\n`;
+    if ((s.due || 0) > 0) {
+      cmd += `PAID: Rs.${s.paid} | DUE UDHAAR: Rs.${s.due}\n`;
+    }
+    cmd += div + 'Thank You! Exchange within 3 days.\n';
+    cmd += '\n'.repeat(printerPrefs.feed || 3);
+    if (printerPrefs.autoCut) {
+      cmd += '\x1D\x56\x41\x10';
+    }
+    return enc.encode(cmd);
+  }
+
+  async function sendEscPosToHardware(bytes) {
+    if (printerPrefs.mode === 'BLUETOOTH' && btChar) {
+      const chunk = 90;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        const slice = bytes.slice(i, i + chunk);
+        if (btChar.properties.writeWithoutResponse) await btChar.writeValueWithoutResponse(slice);
+        else await btChar.writeValue(slice);
+      }
+      return true;
+    }
+    if (printerPrefs.mode === 'USB' && usbDevice) {
+      await usbDevice.transferOut(usbEndpoint || 1, bytes);
+      return true;
+    }
+    if (printerPrefs.mode === 'SERIAL' && serialWriter) {
+      await serialWriter.write(bytes);
+      return true;
+    }
+    if (printerPrefs.mode === 'NETWORK' && printerPrefs.netIp) {
+      const url = `http://${printerPrefs.netIp}:${printerPrefs.netPort || 9100}/`;
+      await fetch(url, { method: 'POST', mode: 'no-cors', body: bytes });
+      return true;
+    }
+    return false;
+  }
+
+  async function printDirect80mm() {
+    const zone = document.getElementById('printZone');
+    document.getElementById('printCard').style.display = 'block';
+
+    if (['BLUETOOTH', 'USB', 'SERIAL', 'NETWORK'].includes(printerPrefs.mode)) {
+      try {
+        const ok = await sendEscPosToHardware(buildEscPosBytes(lastSavedSale));
+        if (ok) {
+          showInlineMsg('billMsg', `🖨️ ${printerPrefs.mode} Printer se bill chhap gaya!`, 'success');
+          return;
+        }
+      } catch (err) {
+        showInlineMsg('billMsg', '⚠️ Direct Hardware Printer busy, fallback print chalu...', 'error');
+      }
+    }
+
+    if (printerPrefs.mode === 'BROWSER') {
+      window.print();
+      return;
+    }
+
+    if (printerPrefs.render === 'ESCPOS') {
+      const bytes = buildEscPosBytes(lastSavedSale);
+      const b64 = btoa(String.fromCharCode(...bytes));
+      window.location.href = 'rawbt:base64,' + b64;
+      return;
+    }
+
+    html2canvas(zone, { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
+      const base64Data = canvas.toDataURL('image/png');
+      window.location.href = 'rawbt:' + base64Data;
+    }).catch(() => {
+      window.print();
+    });
+  }
+
+  function printDirect80mmFromModal() {
+    closeBillModal();
+    const tabEl = document.getElementById('tab-billing');
+    if (tabEl) switchTab('billing', tabEl);
+    printDirect80mm();
+  }
+
+  async function testThermalPrinter() {
+    const bytes = buildEscPosBytes(null);
+    try {
+      const sent = await sendEscPosToHardware(bytes);
+      if (sent) {
+        showInlineMsg('printerStatusMsg', `✅ Test Parchi ${printerPrefs.mode} Printer par chhap gayi!`, 'success');
+        return;
+      }
+    } catch (e) {}
+
+    if (printerPrefs.mode === 'RAWBT') {
+      const b64 = btoa(String.fromCharCode(...bytes));
+      window.location.href = 'rawbt:base64,' + b64;
+      showInlineMsg('printerStatusMsg', '⚡ RawBT par Test Receipt bhej di gayi!', 'success');
+    } else {
+      const zone = document.getElementById('printZone');
+      document.getElementById('printCard').style.display = 'block';
+      if (!zone.innerHTML.trim()) {
+        zone.innerHTML = `<p class="receipt-didi">✨ दीदी की दुकान ✨</p><h2>SHAKYA COSMETIC</h2><p>Printer Test Receipt (${printerPrefs.size})</p>`;
+      }
+      window.print();
+    }
+  }
+  // [JS-02: UNIVERSAL MARKET PRINTER HUB ENGINE END]

@@ -1,0 +1,198 @@
+// src/features/khata/khata.js — Grahak Udhaar Passbook & Khata Ledger
+// [JS-12: UDHAAR PASSBOOK, CALL & CUSTOMER KHATA START]
+  // =====================================================================
+  function openUdhaarModal(mob, name, totalDue) {
+    activeUdhaarMobile = mob;
+    activeUdhaarName = name;
+    document.getElementById('udhaarCustInfo').innerText = `${name} (${mob}) — Kul Baaki Udhaar: ₹${totalDue}`;
+    document.getElementById('udhaarReceiveInput').value = totalDue;
+    document.getElementById('udhaarPayMode').value = 'Cash';
+    document.getElementById('udhaarModal').style.display = 'flex';
+  }
+
+  function openUdhaarByTableIdx(idx) {
+    const c = customerTableCache[idx];
+    if (!c) return;
+    openUdhaarModal(c.mobile, c.name, c.due);
+  }
+
+  function remindUdhaarByTableIdx(idx) {
+    const c = customerTableCache[idx];
+    if (!c) return;
+    sendUdhaarReminder(c.mobile, c.name, c.due);
+  }
+
+  function saveContactByTableIdx(idx) {
+    const c = customerTableCache[idx];
+    if (!c) return;
+    downloadVcfCard(c.name, c.mobile, c.village);
+  }
+
+  function selectCustomerSearchByIdx(idx) {
+    const c = customerTableCache[idx];
+    if (!c) return;
+    const q = c.mobile || c.name;
+    document.getElementById('searchMobile').value = q;
+    lookupCustomer(q);
+  }
+
+  function closeUdhaarModal() {
+    document.getElementById('udhaarModal').style.display = 'none';
+  }
+
+  function confirmUdhaarPayment(sendWa = false) {
+    let recAmt = parseFloat(document.getElementById('udhaarReceiveInput').value) || 0;
+    const payMode = document.getElementById('udhaarPayMode').value || 'Cash';
+    if (recAmt <= 0 || !activeUdhaarMobile) return;
+
+    const origRecAmt = recAmt;
+    sales.forEach(s => {
+      if (s.mobile === activeUdhaarMobile && (s.due || 0) > 0 && recAmt > 0) {
+        let settle = Math.min(s.due, recAmt);
+        s.due -= settle;
+        s.udhaarRecovered = (s.udhaarRecovered || 0) + settle;
+        recAmt -= settle;
+      }
+    });
+
+    const actuallySettled = origRecAmt - recAmt;
+    const remainingDue = sales
+      .filter(s => s.mobile === activeUdhaarMobile)
+      .reduce((sum, s) => sum + (s.due || 0), 0);
+
+    const now = new Date();
+    udhaarLogs.unshift({
+      id: 'UDH' + Date.now().toString().slice(-5),
+      date: now.toLocaleDateString('hi-IN'),
+      isoDate: (window.getLocalIsoDate ? window.getLocalIsoDate(now) : now.toISOString().slice(0, 10)),
+      mobile: activeUdhaarMobile,
+      cust: activeUdhaarName,
+      amount: actuallySettled,
+      mode: payMode,
+      remainingDue
+    });
+
+    if (window.emitPosEvent) window.emitPosEvent('khata:udhaarPaid', { mobile: activeUdhaarMobile, remainingDue });
+    syncToCloud();
+    closeUdhaarModal();
+    lookupCustomer(activeUdhaarMobile);
+    renderCustomerSection();
+    renderStats();
+
+    if (sendWa && activeUdhaarMobile.length >= 10) {
+      const msg = `🙏 नमस्कार *${activeUdhaarName}* जी,\n*दीदी की दुकान • SHAKYA COSMETIC* (निवाड़ी कलां) में आज आपके उधार खाते में *₹${actuallySettled}* (${payMode}) जमा प्राप्त हुए।\nअब आपका कुल बाकी उधार: *₹${remainingDue}* है। धन्यवाद!`;
+      window.open(`https://wa.me/91${activeUdhaarMobile}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+  }
+
+  function sendUdhaarReminder(mob, name, dueAmt) {
+    const msg = `🙏 नमस्कार *${name}* जी,\n*दीदी की दुकान • SHAKYA COSMETIC* (निवाड़ी कलां) की तरफ से याद दिलाया जाता है कि आपका *₹${dueAmt}* का हिसाब बाकी (उधार) है।\n📱 *UPI ID:* ${merchantUpiId}\nकृपया सुविधा अनुसार जल्द जमा करने का कष्ट करें। धन्यवाद!`;
+    window.open(`https://wa.me/91${mob}?text=${encodeURIComponent(msg)}`, '_blank');
+  }
+
+  function lookupCustomer(query) {
+    const q = (query || '').trim().toUpperCase();
+    const res = document.getElementById('customerLedgerResult');
+    if (!q || q.length < 2) {
+      res.innerHTML = '';
+      return;
+    }
+
+    const matchedBills = sales.filter(s =>
+      (s.mobile && s.mobile.includes(q)) ||
+      (s.cust && s.cust.toUpperCase().includes(q)) ||
+      (s.village && s.village.toUpperCase().includes(q))
+    );
+
+    if (matchedBills.length === 0) {
+      res.innerHTML = `<div style="color:var(--red); padding:8px; background:#fffbeb; border-radius:8px;">❌ "${query}" naam, gaon ya mobile se koi bill nahi mila.</div>`;
+      return;
+    }
+
+    let totalSpend = matchedBills.reduce((acc, s) => acc + (s.acc || 0), 0);
+    let totalDue = matchedBills.reduce((acc, s) => acc + (s.due || 0), 0);
+    let custName = matchedBills[0].cust;
+    let village = matchedBills[0].village;
+    let mob = matchedBills[0].mobile || '';
+    lookupCustCache = { name: custName, village: village, mob: mob, totalDue: totalDue };
+
+    const custPayments = udhaarLogs.filter(l =>
+      (mob && l.mobile === mob) || (l.cust && l.cust.toUpperCase().includes(q))
+    );
+
+    res.innerHTML = `
+      <div style="background:var(--maroon-light); border:1.5px solid var(--maroon); padding:10px; border-radius:10px;">
+        👤 <b>Name:</b> ${custName} | 📍 <b>Gaon:</b> ${village} | 📱 <b>Mob:</b> ${mob || 'N/A'}<br>
+        📦 <b>Kul Bills:</b> ${matchedBills.length} | 💰 <b>Kul Kharid:</b> ₹${totalSpend} | <b style="color:var(--red);">Baaki Udhaar: ₹${totalDue}</b>
+        ${mob ? `
+          <div class="row" style="margin-top:8px;">
+            <div><button class="callbtn small" style="width:100%; margin:0;" onclick="callCustomerNumber('${mob}')">📞 Call Karein</button></div>
+            <div><button class="dark small" style="width:100%; margin:0;" onclick="downloadVcfCard(lookupCustCache.name, lookupCustCache.mob, lookupCustCache.village)">👤 Save Contact</button></div>
+          </div>
+        ` : ''}
+        ${totalDue > 0 && mob ? `
+          <div class="row" style="margin-top:6px;">
+            <div><button class="gold small" style="width:100%; margin:0;" onclick="openUdhaarModal(lookupCustCache.mob, lookupCustCache.name, lookupCustCache.totalDue)">💰 Udhaar Jama Karein</button></div>
+            <div><button class="whatsapp small" style="width:100%; margin:0;" onclick="sendUdhaarReminder(lookupCustCache.mob, lookupCustCache.name, lookupCustCache.totalDue)">💬 WhatsApp Reminder</button></div>
+          </div>
+        ` : ''}
+        <hr style="margin:6px 0;">
+        <b>🧾 Purane Bills ki List (Tap karke Asli Bill Photo bhejein):</b>
+        ${matchedBills.map(b => `<div style="margin-top:4px; cursor:pointer; color:var(--maroon); font-weight:700; text-decoration:underline;" onclick="openBillModal('${b.invId}')"><b>${b.invId}</b> (${b.date}) - Tay: ₹${b.acc} ${(b.due || 0) > 0 ? `<b style="color:red;">[Udhaar: ₹${b.due}]</b>` : ''}</div>`).join('')}
+        ${custPayments.length > 0 ? `
+          <hr style="margin:6px 0;">
+          <b style="color:var(--green);">📓 Udhaar Jama Passbook History:</b>
+          ${custPayments.map(p => `<div style="margin-top:3px; font-size:11px; color:#1e293b;">✅ <b>${p.date}</b>: <b>₹${p.amount}</b> jama (${p.mode}) — Baaki बचा: ₹${p.remainingDue}</div>`).join('')}
+        ` : ''}
+      </div>
+    `;
+    if (window.emitPosEvent) window.emitPosEvent('customer:lookedUp', { query, cache: lookupCustCache });
+  }
+
+  function setCustFilter(mode) {
+    custFilterMode = mode;
+    document.getElementById('custFilterAllBtn').style.background = mode === 'ALL' ? 'var(--maroon)' : '#e2e8f0';
+    document.getElementById('custFilterAllBtn').style.color = mode === 'ALL' ? '#fff' : '#334155';
+    document.getElementById('custFilterDueBtn').style.background = mode === 'DUE' ? 'var(--maroon)' : '#e2e8f0';
+    document.getElementById('custFilterDueBtn').style.color = mode === 'DUE' ? '#fff' : '#334155';
+    renderCustomerSection();
+  }
+
+  function renderCustomerSection() {
+    let allCust = getCustomerDirectory().sort((a, b) => (b.due || 0) - (a.due || 0));
+    if (custFilterMode === 'DUE') {
+      allCust = allCust.filter(c => (c.due || 0) > 0);
+    }
+    customerTableCache = allCust;
+    const tbody = document.getElementById('allCustomersBody');
+
+    if (customerTableCache.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:10px; color:#888;">Is list mein koi customer record nahi hai.</td></tr>`;
+      if (window.emitPosEvent) window.emitPosEvent('customer:sectionRendered');
+      return;
+    }
+
+    tbody.innerHTML = customerTableCache.map((c, idx) => `
+      <tr>
+        <td onclick="selectCustomerSearchByIdx(${idx})" style="cursor:pointer;">
+          <b style="color:var(--maroon-dark);">${c.name}</b><br>
+          <small style="color:#475569;">${c.mobile || 'No Mob'}</small>
+        </td>
+        <td>${c.village}</td>
+        <td>₹${c.spend}</td>
+        <td><b style="color:${c.due > 0 ? 'var(--red)' : 'var(--green)'};">₹${c.due}</b></td>
+        <td style="text-align:right; white-space:nowrap;">
+          <div class="action-group">
+            ${c.mobile ? `<button class="btn-action" style="background:var(--green); color:#fff;" onclick="callCustomerNumber('${c.mobile}')" title="Call">📞</button>` : ''}
+            ${c.mobile ? `<button class="btn-action" style="background:#334155; color:#fff;" onclick="saveContactByTableIdx(${idx})" title="Save Contact">👤</button>` : ''}
+            ${c.due > 0 && c.mobile ? `
+              <button class="btn-action" style="background:var(--gold); color:#111827;" onclick="openUdhaarByTableIdx(${idx})">💰</button>
+              <button class="btn-action" style="background:#16a34a; color:#fff;" onclick="remindUdhaarByTableIdx(${idx})">💬</button>
+            ` : `<span style="color:var(--green); font-size:10px; font-weight:bold;">✔</span>`}
+          </div>
+        </td>
+      </tr>
+    `).join('');
+    if (window.emitPosEvent) window.emitPosEvent('customer:sectionRendered');
+  }
+  // [JS-12: UDHAAR PASSBOOK, CALL & CUSTOMER KHATA END]

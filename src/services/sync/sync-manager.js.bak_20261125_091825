@@ -1,0 +1,529 @@
+// src/services/sync/sync-manager.js — Multi-Phone Safe Delta Cloud Sync Engine
+// =========================================================================
+  // 2. RECORD-LEVEL MULTI-PHONE SMART MERGE ALGEBRA (BUG #2)
+  // =========================================================================
+  function getContactKey(c) {
+    if (!c) return "";
+    const mob = String(c.mobile || "").trim();
+    if (mob.length >= 10) return "M_" + mob;
+    const nm = String(c.name || "").trim().toUpperCase();
+    return nm ? "N_" + nm : "";
+  }
+
+  function mergeDeletedLedgers(localL, remoteL) {
+    const out = {};
+    const cols = new Set([...Object.keys(localL || {}), ...Object.keys(remoteL || {})]);
+    cols.forEach((col) => {
+      out[col] = Object.assign({}, (remoteL && remoteL[col]) || {}, (localL && localL[col]) || {});
+      const lCol = (localL && localL[col]) || {};
+      const rCol = (remoteL && remoteL[col]) || {};
+      Object.keys(rCol).forEach((k) => {
+        out[col][k] = Math.max(Number(lCol[k]) || 0, Number(rCol[k]) || 0);
+      });
+    });
+    return out;
+  }
+
+  function mergeKeyedCollection(localArr, remoteArr, keyFn, colName, combinedTombstones, preferNewerFn) {
+    const map = new Map();
+    const orderKeys = [];
+
+    const addOrMerge = (item, isLocal) => {
+      if (!item || typeof item !== "object") return;
+      const rawKey = keyFn(item);
+      if (!rawKey) return;
+      const k = String(rawKey).trim().toUpperCase();
+      if (isTombstoned(colName, k, item._u || 0, combinedTombstones)) return;
+
+      if (!map.has(k)) {
+        map.set(k, Object.assign({}, item));
+        orderKeys.push(k);
+      } else {
+        const existing = map.get(k);
+        const merged = preferNewerFn(existing, item, isLocal);
+        map.set(k, merged);
+      }
+    };
+
+    (Array.isArray(localArr) ? localArr : []).forEach((x) => addOrMerge(x, true));
+    (Array.isArray(remoteArr) ? remoteArr : []).forEach((x) => addOrMerge(x, false));
+
+    return orderKeys.map((k) => map.get(k)).filter(Boolean);
+  }
+
+  function mergeInventorySmart(localInv, remoteInv, combinedTombstones, applyPendingDeltas) {
+    const remoteMap = new Map();
+    (Array.isArray(remoteInv) ? remoteInv : []).forEach((r) => {
+      if (r && r.code) remoteMap.set(String(r.code).trim().toUpperCase(), r);
+    });
+
+    const localMap = new Map();
+    (Array.isArray(localInv) ? localInv : []).forEach((l) => {
+      if (l && l.code) localMap.set(String(l.code).trim().toUpperCase(), l);
+    });
+
+    const allCodes = [];
+    const seen = new Set();
+    [...(Array.isArray(localInv) ? localInv : []), ...(Array.isArray(remoteInv) ? remoteInv : [])].forEach((i) => {
+      if (!i || !i.code) return;
+      const c = String(i.code).trim().toUpperCase();
+      if (!seen.has(c)) {
+        seen.add(c);
+        allCodes.push(c);
+      }
+    });
+
+    const mergedInv = [];
+    allCodes.forEach((code) => {
+      const lItem = localMap.get(code);
+      const rItem = remoteMap.get(code);
+      const maxU = Math.max(Number(lItem && lItem._u) || 0, Number(rItem && rItem._u) || 0);
+      if (isTombstoned("inventory", code, maxU, combinedTombstones)) return;
+
+      if (lItem && !rItem) {
+        mergedInv.push(Object.assign({}, lItem));
+      } else if (rItem && !lItem) {
+        mergedInv.push(Object.assign({}, rItem));
+      } else {
+        const lU = Number(lItem._u) || 0;
+        const rU = Number(rItem._u) || 0;
+        const base = lU >= rU ? Object.assign({}, rItem, lItem) : Object.assign({}, lItem, rItem);
+
+        const delta = Number(pendingQtyDeltas[code]) || 0;
+        if (applyPendingDeltas && delta !== 0 && rU > 0 && rItem.qty !== undefined && lU < rU) {
+          base.qty = Math.max(0, (Number(rItem.qty) || 0) + delta);
+        }
+        base._u = Math.max(lU, rU, Date.now());
+        mergedInv.push(base);
+      }
+    });
+
+    return mergedInv;
+  }
+
+  function mergeSalesSmart(localSales, remoteSales, combinedTombstones) {
+    const remoteById = new Map();
+    (Array.isArray(remoteSales) ? remoteSales : []).forEach((s) => {
+      if (s && s.invId) remoteById.set(String(s.invId).trim().toUpperCase(), s);
+    });
+
+    let maxInvNum = 100;
+    [...(Array.isArray(localSales) ? localSales : []), ...(Array.isArray(remoteSales) ? remoteSales : [])].forEach((s) => {
+      if (s && s.invId) {
+        const m = String(s.invId).match(/^INV(\d+)$/);
+        if (m) maxInvNum = Math.max(maxInvNum, parseInt(m[1], 10));
+      }
+    });
+
+    const safeLocalSales = (Array.isArray(localSales) ? localSales : []).map((s) => {
+      if (!s || !s.invId) return s;
+      const k = String(s.invId).trim().toUpperCase();
+      const rMatch = remoteById.get(k);
+      if (
+        rMatch &&
+        (rMatch.cust !== s.cust || rMatch.totalMrp !== s.totalMrp || (rMatch.items || []).length !== (s.items || []).length)
+      ) {
+        maxInvNum += 1;
+        const copy = Object.assign({}, s, { invId: "INV" + maxInvNum, _u: Date.now() });
+        if (typeof lastSavedSale !== "undefined" && lastSavedSale && lastSavedSale.invId === s.invId) {
+          lastSavedSale.invId = copy.invId;
+        }
+        return copy;
+      }
+      return s;
+    });
+
+    const merged = mergeKeyedCollection(
+      safeLocalSales,
+      remoteSales,
+      (s) => s.invId,
+      "sales",
+      combinedTombstones,
+      (existing, incoming) => {
+        const eU = Number(existing._u) || 0;
+        const iU = Number(incoming._u) || 0;
+        if (iU > eU) return Object.assign({}, existing, incoming);
+        if (eU > iU) return Object.assign({}, incoming, existing);
+        if (incoming.exchanged && !existing.exchanged) return Object.assign({}, existing, incoming);
+        if ((Number(incoming.due) || 0) < (Number(existing.due) || 0)) return Object.assign({}, existing, incoming);
+        return Object.assign({}, incoming, existing);
+      }
+    );
+
+    merged.sort((a, b) => {
+      const nA = parseInt(String((a && a.invId) || "").replace(/\D/g, ""), 10) || 0;
+      const nB = parseInt(String((b && b.invId) || "").replace(/\D/g, ""), 10) || 0;
+      return nB - nA;
+    });
+
+    return merged;
+  }
+
+  function mergeAllCollectionsWithCloud(cloudData, applyPendingDeltas) {
+    if (!cloudData || typeof cloudData !== "object") return null;
+
+    const combinedTombstones = mergeDeletedLedgers(deletedLedger, cloudData.deletedLedger || {});
+    deletedLedger = combinedTombstones;
+
+    const mergedInventory = mergeInventorySmart(
+      typeof inventory !== "undefined" ? inventory : [],
+      normalizeArray(cloudData.inventory),
+      combinedTombstones,
+      applyPendingDeltas
+    );
+
+    const mergedSales = mergeSalesSmart(
+      typeof sales !== "undefined" ? sales : [],
+      normalizeArray(cloudData.sales),
+      combinedTombstones
+    );
+
+    const mergedUdhaar = mergeKeyedCollection(
+      typeof udhaarLogs !== "undefined" ? udhaarLogs : [],
+      normalizeArray(cloudData.udhaarLogs),
+      (u) => u.id || (u.mobile + "_" + u.date + "_" + u.amount),
+      "udhaarLogs",
+      combinedTombstones,
+      (a, b) => ((Number(b._u) || 0) > (Number(a._u) || 0) ? Object.assign({}, a, b) : Object.assign({}, b, a))
+    );
+
+    const mergedExpenses = mergeKeyedCollection(
+      typeof expenses !== "undefined" ? expenses : [],
+      normalizeArray(cloudData.expenses),
+      (e) => e.id || (e.note + "_" + e.date + "_" + e.amount),
+      "expenses",
+      combinedTombstones,
+      (a, b) => ((Number(b._u) || 0) > (Number(a._u) || 0) ? Object.assign({}, a, b) : Object.assign({}, b, a))
+    );
+
+    const mergedContacts = mergeKeyedCollection(
+      typeof contacts !== "undefined" ? contacts : [],
+      normalizeArray(cloudData.contacts),
+      getContactKey,
+      "contacts",
+      combinedTombstones,
+      (a, b) => {
+        const aU = Number(a._u) || 0;
+        const bU = Number(b._u) || 0;
+        const base = bU > aU ? Object.assign({}, a, b) : Object.assign({}, b, a);
+        if (!base.chudiSize && (a.chudiSize || b.chudiSize)) base.chudiSize = a.chudiSize || b.chudiSize;
+        if (!base.tasteNote && (a.tasteNote || b.tasteNote)) base.tasteNote = a.tasteNote || b.tasteNote;
+        if (!base.vaadaDate && (a.vaadaDate || b.vaadaDate)) base.vaadaDate = a.vaadaDate || b.vaadaDate;
+        return base;
+      }
+    );
+
+    const mergedMandiBills = mergeKeyedCollection(
+      Array.isArray(window.mandiBills) ? window.mandiBills : [],
+      normalizeArray(cloudData.mandiBills),
+      (b) => b.id || (b.party + "_" + b.billNo),
+      "mandiBills",
+      combinedTombstones,
+      (a, b) => {
+        const aU = Number(a._u) || 0;
+        const bU = Number(b._u) || 0;
+        const base = bU > aU ? Object.assign({}, a, b) : Object.assign({}, b, a);
+        if (!base.parchiPhoto && (a.parchiPhoto || b.parchiPhoto)) {
+          base.parchiPhoto = a.parchiPhoto || b.parchiPhoto;
+        }
+        return base;
+      }
+    );
+
+    const mergedMandiPayments = mergeKeyedCollection(
+      Array.isArray(window.mandiPayments) ? window.mandiPayments : [],
+      normalizeArray(cloudData.mandiPayments),
+      (p) => p.id || (p.partyKey + "_" + p.date + "_" + p.amount),
+      "mandiPayments",
+      combinedTombstones,
+      (a, b) => ((Number(b._u) || 0) > (Number(a._u) || 0) ? Object.assign({}, a, b) : Object.assign({}, b, a))
+    );
+
+    return {
+      inventory: mergedInventory,
+      sales: mergedSales,
+      udhaarLogs: mergedUdhaar,
+      expenses: mergedExpenses,
+      contacts: mergedContacts,
+      mandiBills: mergedMandiBills,
+      mandiPayments: mergedMandiPayments,
+      deletedLedger: combinedTombstones
+    };
+  }
+
+  function applyMergedStateToMemoryAndLocal(merged) {
+    if (!merged) return;
+
+    const memPhotos = {};
+    if (Array.isArray(window.mandiBills)) {
+      window.mandiBills.forEach((b) => {
+        if (b && b.id && b.parchiPhoto) memPhotos[b.id] = b.parchiPhoto;
+      });
+    }
+
+    if (typeof inventory !== "undefined" && Array.isArray(inventory)) {
+      inventory.length = 0;
+      merged.inventory.forEach((x) => inventory.push(x));
+    }
+    if (typeof sales !== "undefined" && Array.isArray(sales)) {
+      sales.length = 0;
+      merged.sales.forEach((x) => sales.push(x));
+    }
+    if (typeof udhaarLogs !== "undefined" && Array.isArray(udhaarLogs)) {
+      udhaarLogs.length = 0;
+      merged.udhaarLogs.forEach((x) => udhaarLogs.push(x));
+    }
+    if (typeof expenses !== "undefined" && Array.isArray(expenses)) {
+      expenses.length = 0;
+      merged.expenses.forEach((x) => expenses.push(x));
+    }
+    if (typeof contacts !== "undefined" && Array.isArray(contacts)) {
+      contacts.length = 0;
+      merged.contacts.forEach((x) => contacts.push(x));
+    }
+
+    window.mandiBills = merged.mandiBills.map((b) => {
+      if (b && b.id && !b.parchiPhoto && memPhotos[b.id]) {
+        b.parchiPhoto = memPhotos[b.id];
+      }
+      return b;
+    });
+    window.mandiPayments = merged.mandiPayments;
+
+    localStorage.setItem("sc_inventory", JSON.stringify(inventory));
+    localStorage.setItem("sc_sales", JSON.stringify(sales));
+    localStorage.setItem("sc_udhaar_logs", JSON.stringify(udhaarLogs));
+    localStorage.setItem("sc_expenses", JSON.stringify(expenses));
+    localStorage.setItem("sc_contacts", JSON.stringify(contacts));
+    localStorage.setItem("sc_mandi_bills", JSON.stringify(window.mandiBills));
+    localStorage.setItem("sc_mandi_payments", JSON.stringify(window.mandiPayments));
+    saveDeltaStateLocal();
+    snapshotCurrentStockQtys();
+  }
+
+  function stampLocalChangesBeforeSync() {
+    const nowTs = Date.now();
+    if (typeof inventory !== "undefined" && Array.isArray(inventory)) {
+      inventory.forEach((item) => {
+        if (!item || !item.code) return;
+        const code = String(item.code).trim().toUpperCase();
+        clearTombstone("inventory", code);
+        const prevQty = lastKnownStockQtys[code];
+        const curQty = Number(item.qty) || 0;
+        if (prevQty !== undefined && prevQty !== curQty) {
+          pendingQtyDeltas[code] = (Number(pendingQtyDeltas[code]) || 0) + (curQty - prevQty);
+          item._u = nowTs;
+        } else if (!item._u) {
+          item._u = nowTs;
+        }
+        lastKnownStockQtys[code] = curQty;
+      });
+    }
+    if (typeof sales !== "undefined" && Array.isArray(sales)) {
+      sales.forEach((s) => { if (s && !s._u) s._u = nowTs; });
+    }
+    if (typeof udhaarLogs !== "undefined" && Array.isArray(udhaarLogs)) {
+      udhaarLogs.forEach((u) => { if (u && !u._u) u._u = nowTs; });
+    }
+    if (typeof expenses !== "undefined" && Array.isArray(expenses)) {
+      expenses.forEach((e) => { if (e && !e._u) e._u = nowTs; });
+    }
+    if (typeof contacts !== "undefined" && Array.isArray(contacts)) {
+      contacts.forEach((c) => { if (c && !c._u) c._u = nowTs; });
+    }
+    if (Array.isArray(window.mandiBills)) {
+      window.mandiBills.forEach((b) => { if (b && !b._u) b._u = nowTs; });
+    }
+    if (Array.isArray(window.mandiPayments)) {
+      window.mandiPayments.forEach((p) => { if (p && !p._u) p._u = nowTs; });
+    }
+    saveDeltaStateLocal();
+  }
+
+  if (typeof window.deleteStockItem === "function" && !window.deleteStockItem._deltaWrapped) {
+    const origDelStock = window.deleteStockItem;
+    window.deleteStockItem = function(code, btnEl) {
+      const wasConfirming = btnEl && btnEl.classList.contains("confirming");
+      if (wasConfirming || !btnEl) {
+        markTombstone("inventory", code);
+      }
+      return origDelStock(code, btnEl);
+    };
+    window.deleteStockItem._deltaWrapped = true;
+  }
+
+  if (typeof window.deleteExpense === "function" && !window.deleteExpense._deltaWrapped) {
+    const origDelExp = window.deleteExpense;
+    window.deleteExpense = function(id) {
+      markTombstone("expenses", id);
+      return origDelExp(id);
+    };
+    window.deleteExpense._deltaWrapped = true;
+  }
+
+  if (typeof window.deleteMandiBill === "function" && !window.deleteMandiBill._deltaWrapped) {
+    const origDelMandi = window.deleteMandiBill;
+    window.deleteMandiBill = function(billId) {
+      markTombstone("mandiBills", billId);
+      return origDelMandi(billId);
+    };
+    window.deleteMandiBill._deltaWrapped = true;
+  }
+
+  if (typeof dbRef !== "undefined" && dbRef) {
+    try { dbRef.off("value"); } catch (e) {}
+
+    dbRef.on("value", (snapshot) => {
+      if (isMergingCloud) return;
+      const cloudData = snapshot.val();
+      if (!cloudData) {
+        if ((typeof inventory !== "undefined" && inventory.length > 0) || (typeof sales !== "undefined" && sales.length > 0)) {
+          window.syncToCloud();
+        }
+        return;
+      }
+
+      if (cloudData.ownerPin) {
+        ownerPin = String(cloudData.ownerPin);
+        localStorage.setItem("sc_owner_pin", ownerPin);
+      }
+      if (cloudData.merchantUpiId) {
+        merchantUpiId = String(cloudData.merchantUpiId);
+        localStorage.setItem("sc_merchant_upi", merchantUpiId);
+        const upiInp = document.getElementById("merchantUpiInput");
+        if (upiInp) upiInp.value = merchantUpiId;
+      }
+
+      const merged = mergeAllCollectionsWithCloud(cloudData, true);
+      if (merged) {
+        applyMergedStateToMemoryAndLocal(merged);
+        reattachIdbPhotosToMandiBills();
+      }
+
+      lastCloudMergeTimeStr = new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      localStorage.setItem("sc_last_merge_time", lastCloudMergeTimeStr);
+
+      if (!hasUnsyncedChanges) {
+        if (typeof updateSyncBadge === "function") updateSyncBadge("ONLINE");
+      }
+
+      if (typeof renderStock === "function") renderStock();
+      if (typeof renderStats === "function") renderStats();
+      if (typeof renderCustomerSection === "function") renderCustomerSection();
+      if (typeof renderMandiKhataUI === "function") renderMandiKhataUI();
+      if (typeof refreshStockOriginSelectors === "function") refreshStockOriginSelectors();
+      refreshCloudSyncMonitorUI();
+      refreshAtomicWalMonitorUI();
+    });
+  }
+
+  window.syncToCloud = function() {
+    stampLocalChangesBeforeSync();
+
+    localStorage.setItem("sc_inventory", JSON.stringify(inventory));
+    localStorage.setItem("sc_sales", JSON.stringify(sales));
+    localStorage.setItem("sc_udhaar_logs", JSON.stringify(udhaarLogs));
+    localStorage.setItem("sc_expenses", JSON.stringify(expenses));
+    localStorage.setItem("sc_contacts", JSON.stringify(contacts));
+    localStorage.setItem("sc_owner_pin", ownerPin);
+    localStorage.setItem("sc_merchant_upi", merchantUpiId);
+    if (Array.isArray(window.mandiBills)) {
+      localStorage.setItem("sc_mandi_bills", JSON.stringify(window.mandiBills));
+    }
+    if (Array.isArray(window.mandiPayments)) {
+      localStorage.setItem("sc_mandi_payments", JSON.stringify(window.mandiPayments));
+    }
+
+    hasUnsyncedChanges = true;
+    localStorage.setItem("sc_unsynced", "true");
+    if (typeof updateSyncBadge === "function") updateSyncBadge("SYNCING");
+    refreshCloudSyncMonitorUI();
+    refreshQuotaDashboardUI();
+    refreshAtomicWalMonitorUI();
+
+    if (typeof dbRef === "undefined" || !dbRef) return;
+
+    isMergingCloud = true;
+    dbRef.once("value").then((snap) => {
+      const remoteData = snap.val() || {};
+      const merged = mergeAllCollectionsWithCloud(remoteData, true);
+      if (merged) {
+        applyMergedStateToMemoryAndLocal(merged);
+      }
+
+      const payload = {
+        inventory: typeof inventory !== "undefined" ? inventory : [],
+        sales: typeof sales !== "undefined" ? sales : [],
+        udhaarLogs: typeof udhaarLogs !== "undefined" ? udhaarLogs : [],
+        expenses: typeof expenses !== "undefined" ? expenses : [],
+        contacts: typeof contacts !== "undefined" ? contacts : [],
+        mandiBills: Array.isArray(window.mandiBills) ? window.mandiBills : [],
+        mandiPayments: Array.isArray(window.mandiPayments) ? window.mandiPayments : [],
+        deletedLedger: deletedLedger || {},
+        ownerPin: typeof ownerPin !== "undefined" ? ownerPin : "1234",
+        merchantUpiId: typeof merchantUpiId !== "undefined" ? merchantUpiId : "",
+        lastUpdatedBy: deviceId,
+        lastUpdated: new Date().toISOString()
+      };
+
+      return dbRef.update(payload);
+    }).then(() => {
+      isMergingCloud = false;
+      pendingQtyDeltas = {};
+      hasUnsyncedChanges = false;
+      localStorage.setItem("sc_unsynced", "false");
+      lastCloudMergeTimeStr = new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      localStorage.setItem("sc_last_merge_time", lastCloudMergeTimeStr);
+      saveDeltaStateLocal();
+      if (typeof updateSyncBadge === "function") updateSyncBadge("ONLINE");
+      refreshCloudSyncMonitorUI();
+      reattachIdbPhotosToMandiBills();
+    }).catch(() => {
+      isMergingCloud = false;
+      if (typeof updateSyncBadge === "function") updateSyncBadge("OFFLINE");
+      refreshCloudSyncMonitorUI();
+    });
+  };
+  window.syncToCloud._mandiWrapped = true;
+
+  window.forceSmartCloudMergeNow = function() {
+    window.syncToCloud();
+    if (typeof showInlineMsg === "function") {
+      showInlineMsg(
+        "backupMsg",
+        `🔄 Multi-Phone Smart Merge Complete! Device ${deviceId} ka data aur Cloud data bina kisi overwrite ke merge ho gaya.`,
+        "success"
+      );
+    }
+  };
+
+  function refreshCloudSyncMonitorUI() {
+    let box = document.getElementById("shCloudSyncMonitorBox");
+    if (!box) {
+      const backupMsg = document.getElementById("backupMsg");
+      if (backupMsg && backupMsg.parentElement) {
+        box = document.createElement("div");
+        box.id = "shCloudSyncMonitorBox";
+        backupMsg.parentElement.insertBefore(box, backupMsg);
+      }
+    }
+    if (!box) return;
+
+    const deltaKeys = Object.keys(pendingQtyDeltas || {}).filter((k) => pendingQtyDeltas[k] !== 0);
+    const syncStateTxt = hasUnsyncedChanges
+      ? `<span class="sh-qv-badge" style="background:rgba(245,158,11,0.2);color:#fbbf24;border-color:#f59e0b;">⏳ ${deltaKeys.length || 1} Pending Sync</span>`
+      : `<span class="sh-qv-badge">🟢 Multi-Phone Safe</span>`;
+
+    box.innerHTML =
+      `<div class="sh-qv-head">` +
+        `<div class="sh-qv-title">☁️ Multi-Phone Delta Cloud Sync Engine</div>` +
+        syncStateTxt +
+      `</div>` +
+      `<div class="sh-qv-grid">` +
+        `<div class="sh-qv-chip"><span>📱 Phone ID</span><b>${deviceId}</b></div>` +
+        `<div class="sh-qv-chip"><span>🕒 Last Merge</span><b>${lastCloudMergeTimeStr}</b></div>` +
+      `</div>` +
+      `<div class="sh-qv-actions">` +
+        `<button type="button" class="sh-qv-btn sh-qv-btn-sync" onclick="forceSmartCloudMergeNow()">🔄 Smart Cloud Merge Now (No Overwrite)</button>` +
+      `</div>`;
+  }

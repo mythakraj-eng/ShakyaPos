@@ -1,0 +1,1118 @@
+// src/features/inventory/inventory.js — Stock CRUD, Gorilla Search & Palette
+// [JS-07: STOCK SEARCH, GORILLA SHORT-CODE & BULK STOCK START]
+  // =====================================================================
+  function renderQuickCatalogStrip() {
+    const strip = document.getElementById('quickCatalogStrip');
+    if (!strip) return;
+    const avail = inventory.filter(i => i && i.qty > 0).slice(0, 12);
+    if (avail.length === 0) {
+      strip.innerHTML = '';
+      return;
+    }
+    strip.innerHTML = avail.map(i => `
+      <span class="q-pill" onclick="selectSuggestion('${i.code}')">⚡ ${i.code} (${i.color}) • ₹${i.mrp}</span>
+    `).join('');
+  }
+
+  function onScanInputType(inp) {
+    const rawVal = (inp.value || '').toUpperCase().replace(/\s+/g, '');
+    inp.value = rawVal;
+    const box = document.getElementById('scanSuggestBox');
+
+    const gorillaMatch = rawVal.match(/^([A-Z]{1,3})\+(\d+)$/);
+    if (gorillaMatch) {
+      const prefix = gorillaMatch[1];
+      const rate = gorillaMatch[2];
+      const mapNames = { 'S':'Daily Saree', 'F':'Fancy Saree', 'C':'Cosmetic', 'P':'Petticoat', 'B':'Blouse/Fall', 'FP':'Fall-Pico' };
+      const catLabel = mapNames[prefix] || 'Quick Item';
+      box.innerHTML = `
+        <div class="suggest-item" style="background:#ecfdf5;" onclick="addItemToBill()">
+          <span>🦍 <b>Gorilla Instant Add:</b> ${catLabel}</span>
+          <span style="color:var(--green); font-weight:900;">Rate: ₹${rate} (+ Add)</span>
+        </div>
+      `;
+      box.style.display = 'block';
+      return;
+    }
+
+    const q = cleanCode(rawVal);
+    if (!q) {
+      const avail = inventory.filter(i => i.qty > 0).slice(0, 6);
+      if (avail.length === 0) { box.style.display = 'none'; return; }
+      box.innerHTML = avail.map(i => `
+        <div class="suggest-item" onclick="selectSuggestion('${i.code}')">
+          <span><b>${i.code}</b> — ${i.cat} (${i.color})</span>
+          <span style="color:var(--maroon);font-weight:700;">₹${i.mrp} <small>[${i.qty} pcs]</small></span>
+        </div>
+      `).join('');
+      box.style.display = 'block';
+      return;
+    }
+
+    const matches = inventory.filter(i =>
+      i.code.includes(q) ||
+      (i.color && cleanCode(i.color).includes(q)) ||
+      String(i.mrp).includes(q)
+    ).slice(0, 8);
+
+    if (matches.length === 0) {
+      box.innerHTML = `<div class="suggest-item" style="color:#dc2626;">❌ "${q}" Stock mein nahi mila (Gorilla code ke liye S+${q} likhein)</div>`;
+      box.style.display = 'block';
+      return;
+    }
+
+    box.innerHTML = matches.map(i => `
+      <div class="suggest-item" onclick="selectSuggestion('${i.code}')">
+        <span><b>${i.code}</b> — ${i.cat} (${i.color})</span>
+        <span style="color:${i.qty > 0 ? 'var(--maroon)' : 'red'};font-weight:700;">
+          ₹${i.mrp} <small>[${i.qty > 0 ? i.qty + ' pcs' : 'Out'}]</small>
+        </span>
+      </div>
+    `).join('');
+    box.style.display = 'block';
+  }
+
+  function selectSuggestion(code) {
+    document.getElementById('scanInput').value = code;
+    document.getElementById('scanSuggestBox').style.display = 'none';
+    addItemToBill();
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.suggest-wrap')) {
+      document.querySelectorAll('.suggest-box').forEach(b => b.style.display = 'none');
+    }
+  });
+
+  // [ANCHOR:COLOR_JS_START]
+  const SAREE_COLOR_DICT = [
+    { name: 'Red', hex: '#dc2626', code: 'R' },
+    { name: 'Blood Red', hex: '#991b1b', code: 'BR' },
+    { name: 'Maroon', hex: '#6e1423', code: 'M' },
+    { name: 'Wine', hex: '#581c5c', code: 'WN' },
+    { name: 'Rani Pink', hex: '#ec4899', code: 'RP' },
+    { name: 'Magenta', hex: '#be185d', code: 'MG' },
+    { name: 'Gajri', hex: '#f43f5e', code: 'GJ' },
+    { name: 'Baby Pink', hex: '#f9a8d4', code: 'BP' },
+    { name: 'Onion Pink', hex: '#c08497', code: 'OP' },
+    { name: 'Peach', hex: '#fdba8c', code: 'PC' },
+    { name: 'Orange', hex: '#f97316', code: 'O' },
+    { name: 'Rust', hex: '#b45309', code: 'RS' },
+    { name: 'Yellow', hex: '#facc15', code: 'Y' },
+    { name: 'Haldi Yellow', hex: '#eab308', code: 'HL' },
+    { name: 'Mustard', hex: '#ca8a04', code: 'MS' },
+    { name: 'Golden', hex: '#d4af37', code: 'GD' },
+    { name: 'Cream', hex: '#fef3c7', code: 'CR' },
+    { name: 'Chiku', hex: '#d6bfa7', code: 'CK' },
+    { name: 'Pista', hex: '#bef264', code: 'PS' },
+    { name: 'Parrot', hex: '#84cc16', code: 'PT' },
+    { name: 'Mehndi', hex: '#4d7c0f', code: 'MH' },
+    { name: 'Green', hex: '#16a34a', code: 'G' },
+    { name: 'Bottle Green', hex: '#064e3b', code: 'BG' },
+    { name: 'Rama', hex: '#0891b2', code: 'RM' },
+    { name: 'Firozi', hex: '#14b8a6', code: 'FZ' },
+    { name: 'Sky Blue', hex: '#38bdf8', code: 'SB' },
+    { name: 'Royal Blue', hex: '#1d4ed8', code: 'RB' },
+    { name: 'Navy Blue', hex: '#1e3a8a', code: 'NB' },
+    { name: 'Lavender', hex: '#c084fc', code: 'LV' },
+    { name: 'Purple', hex: '#7e22ce', code: 'PR' },
+    { name: 'Brown', hex: '#78350f', code: 'BN' },
+    { name: 'Coffee', hex: '#451a03', code: 'CF' },
+    { name: 'Silver', hex: '#cbd5e1', code: 'SL' },
+    { name: 'Grey', hex: '#64748b', code: 'GY' },
+    { name: 'Black', hex: '#0f172a', code: 'BK' },
+    { name: 'White', hex: '#f8fafc', code: 'W' }
+  ];
+
+  // Register all saree codes into colorCodeMap for automatic SKU generation
+  if (typeof colorCodeMap === 'object') {
+    SAREE_COLOR_DICT.forEach(c => { colorCodeMap[c.name.toUpperCase()] = c.code; });
+    colorCodeMap['MULTI'] = 'ML';
+  }
+
+  function hexToRgbArr(hex) {
+    const n = parseInt(hex.replace('#', ''), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  // Perceptual RGB -> CIELAB conversion for accurate human-eye matching
+  function rgbToLab(r, g, b) {
+    let R = r / 255, G = g / 255, B = b / 255;
+    R = R > 0.04045 ? Math.pow((R + 0.055) / 1.055, 2.4) : R / 12.92;
+    G = G > 0.04045 ? Math.pow((G + 0.055) / 1.055, 2.4) : G / 12.92;
+    B = B > 0.04045 ? Math.pow((B + 0.055) / 1.055, 2.4) : B / 12.92;
+    let X = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
+    let Y = (R * 0.2126 + G * 0.7152 + B * 0.0722) / 1.00000;
+    let Z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
+    X = X > 0.008856 ? Math.cbrt(X) : (7.787 * X) + 16 / 116;
+    Y = Y > 0.008856 ? Math.cbrt(Y) : (7.787 * Y) + 16 / 116;
+    Z = Z > 0.008856 ? Math.cbrt(Z) : (7.787 * Z) + 16 / 116;
+    return [(116 * Y) - 16, 500 * (X - Y), 200 * (Y - Z)];
+  }
+
+  SAREE_COLOR_DICT.forEach(c => {
+    c.rgb = hexToRgbArr(c.hex);
+    c.lab = rgbToLab(c.rgb[0], c.rgb[1], c.rgb[2]);
+  });
+
+  function getTop3SareeMatches(r, g, b) {
+    const targetLab = rgbToLab(r, g, b);
+    const scored = SAREE_COLOR_DICT.map(c => {
+      const dL = (targetLab[0] - c.lab[0]) * 0.85; // slightly forgiving on shop lighting brightness
+      const da = (targetLab[1] - c.lab[1]) * 1.15; // strict on red/green hue
+      const db = (targetLab[2] - c.lab[2]) * 1.15; // strict on yellow/blue hue
+      return { ...c, dist: Math.sqrt(dL * dL + da * da + db * db) };
+    });
+    scored.sort((a, b) => a.dist - b.dist);
+    return scored.slice(0, 3);
+  }
+
+  let camColorStream = null;
+  let torchOn = false;
+
+  function renderExtendedSareeGrid() {
+    const grid = document.getElementById('extendedPaletteGrid');
+    if (!grid || grid.dataset.built) return;
+    grid.dataset.built = '1';
+    const mainSet = new Set(['Red','Rani Pink','Yellow','Green','Maroon','Royal Blue','Rama','Orange','Purple','Black','White','Golden']);
+    const extraShades = SAREE_COLOR_DICT.filter(c => !mainSet.has(c.name));
+    let html = `<span class="color-chip" data-col="Multi" onclick="toggleColorChip('Multi')"><i class="swatch-dot" style="background:conic-gradient(#ef4444,#eab308,#22c55e,#3b82f6,#a855f7,#ef4444);"></i>Multi Print</span>`;
+    extraShades.forEach(c => {
+      html += `<span class="color-chip" data-col="${c.name}" onclick="toggleColorChip('${c.name}')"><i class="swatch-dot" style="background:${c.hex};"></i>${c.name}</span>`;
+    });
+    grid.innerHTML = html;
+  }
+
+  function updateDetectedColorPreview(r, g, b) {
+    const top3 = getTop3SareeMatches(r, g, b);
+    const badge = document.getElementById('liveRgbBadge');
+    if (badge) {
+      badge.style.color = `rgb(${r},${g},${b})`;
+      badge.innerText = `● ${top3[0].name}`;
+    }
+    const row = document.getElementById('top3MatchesRow');
+    if (!row) return;
+    row.innerHTML = top3.map((m, idx) => `
+      <div class="match-pill ${idx === 0 ? 'best' : ''}" onclick="toggleColorChip('${m.name}')">
+        <i class="swatch-dot" style="width:13px;height:13px;border-radius:50%;background:${m.hex};border:1px solid #333;display:inline-block;"></i>
+        <span>${idx === 0 ? '🎯 ' : '+ '}${m.name}</span>
+      </div>
+    `).join('');
+  }
+
+  function initSareeSpectrumCanvas() {
+    renderExtendedSareeGrid();
+    const canvas = document.getElementById('sareeSpectrumCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    if (!canvas.dataset.ready) {
+      canvas.dataset.ready = '1';
+      // Draw rich 36-tile Saree Swatch Matrix on top 65% + smooth rainbow on bottom 35%
+      const cols = 9;
+      const rows = 4;
+      const cellW = canvas.width / cols;
+      const cellH = canvas.height / rows;
+      SAREE_COLOR_DICT.slice(0, 36).forEach((c, idx) => {
+        const colIdx = idx % cols;
+        const rowIdx = Math.floor(idx / cols);
+        ctx.fillStyle = c.hex;
+        ctx.fillRect(colIdx * cellW, rowIdx * cellH, cellW + 0.8, cellH + 0.8);
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.strokeRect(colIdx * cellW, rowIdx * cellH, cellW, cellH);
+      });
+
+      function pickAtEvent(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const relX = Math.max(0, Math.min(rect.width - 1, clientX - rect.left));
+        const relY = Math.max(0, Math.min(rect.height - 1, clientY - rect.top));
+        const x = Math.round((relX / rect.width) * (canvas.width - 1));
+        const y = Math.round((relY / rect.height) * (canvas.height - 1));
+        const ptr = document.getElementById('spectrumPointer');
+        if (ptr) {
+          ptr.style.left = `${(relX / rect.width) * 100}%`;
+          ptr.style.top = `${(relY / rect.height) * 100}%`;
+        }
+        const px = ctx.getImageData(x, y, 1, 1).data;
+        updateDetectedColorPreview(px[0], px[1], px[2]);
+      }
+
+      canvas.addEventListener('pointerdown', pickAtEvent);
+      canvas.addEventListener('pointermove', (e) => { if (e.buttons > 0) pickAtEvent(e); });
+      canvas.addEventListener('touchstart', pickAtEvent, { passive: true });
+      canvas.addEventListener('touchmove', pickAtEvent, { passive: true });
+      updateDetectedColorPreview(236, 72, 153);
+    }
+  }
+
+  async function startCameraColorMatch() {
+    const wrap = document.getElementById('camColorWrap');
+    const vid = document.getElementById('camColorVideo');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('⚠️ Camera ke liye localhost:8080 par kholein.');
+      return;
+    }
+    try {
+      camColorStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      vid.srcObject = camColorStream;
+      wrap.style.display = 'block';
+    } catch (err) {
+      alert('⚠️ Camera permission allow karein.');
+    }
+  }
+
+  async function toggleCameraTorch() {
+    if (!camColorStream) return;
+    const track = camColorStream.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      torchOn = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+    } catch (e) {
+      alert('ℹ️ Is phone camera par direct torch support nahi hai.');
+    }
+  }
+
+  function captureCameraSareeColor() {
+    const vid = document.getElementById('camColorVideo');
+    if (!vid || !vid.videoWidth) return;
+    const sampleSize = 36;
+    const c = document.createElement('canvas');
+    c.width = sampleSize;
+    c.height = sampleSize;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(
+      vid,
+      (vid.videoWidth - sampleSize) / 2,
+      (vid.videoHeight - sampleSize) / 2,
+      sampleSize,
+      sampleSize,
+      0, 0, sampleSize, sampleSize
+    );
+    const data = ctx.getImageData(0, 0, sampleSize, sampleSize).data;
+    let rSum = 0, gSum = 0, bSum = 0, count = 0;
+    // Ignore extreme specular glare (zari reflection) and deep fold shadows
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (lum > 18 && lum < 245) {
+        rSum += r; gSum += g; bSum += b; count++;
+      }
+    }
+    if (count === 0) {
+      rSum = data[0]; gSum = data[1]; bSum = data[2]; count = 1;
+    }
+    const avgR = Math.round(rSum / count);
+    const avgG = Math.round(gSum / count);
+    const avgB = Math.round(bSum / count);
+    updateDetectedColorPreview(avgR, avgG, avgB);
+    const best = getTop3SareeMatches(avgR, avgG, avgB)[0];
+    if (best) toggleColorChip(best.name);
+    stopCameraColorMatch();
+  }
+
+  function stopCameraColorMatch() {
+    torchOn = false;
+    if (camColorStream) {
+      camColorStream.getTracks().forEach(t => t.stop());
+      camColorStream = null;
+    }
+    const wrap = document.getElementById('camColorWrap');
+    if (wrap) wrap.style.display = 'none';
+  }
+
+  function toggleMultiDrawer() {
+    const drawer = document.getElementById('multiColorDrawer');
+    if (!drawer) return;
+    const isOpen = drawer.classList.toggle('open');
+    if (isOpen) {
+      initSareeSpectrumCanvas();
+      syncColorChipsUI();
+    } else {
+      stopCameraColorMatch();
+    }
+    playPosBeep(920, 0.04);
+  }
+
+  function toggleColorChip(colName) {
+    const inp = document.getElementById('sColor');
+    let current = inp.value.split(',').map(s => s.trim()).filter(Boolean);
+    const idx = current.findIndex(c => c.toLowerCase() === colName.toLowerCase());
+    if (idx > -1) { current.splice(idx, 1); } else { current.push(colName); }
+    inp.value = current.join(', ');
+    syncColorChipsUI();
+    playPosBeep(900, 0.04);
+  }
+
+  function applyPresetSet() {
+    document.getElementById('sColor').value = 'Red, Rani Pink, Yellow, Green, Maroon, Royal Blue';
+    syncColorChipsUI();
+    playPosBeep(960, 0.06);
+  }
+
+  function clearColorChips() {
+    document.getElementById('sColor').value = '';
+    syncColorChipsUI();
+  }
+
+  function syncColorChipsUI() {
+    const val = document.getElementById('sColor')?.value || '';
+    const activeList = val.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    document.querySelectorAll('#colorPaletteGrid .color-chip[data-col], #extendedPaletteGrid .color-chip[data-col]').forEach(chip => {
+      const col = (chip.getAttribute('data-col') || '').toLowerCase();
+      chip.classList.toggle('selected', activeList.includes(col));
+    });
+  }
+  // [ANCHOR:COLOR_JS_END]
+
+  // [ANCHOR:NAKAD_SAFE_JS_START]
+  function togglePaidInputLock(chk) {
+    const paidInp = document.getElementById('paidInput');
+    if (!paidInp) return;
+    if (chk.checked) {
+      paidInp.removeAttribute('readonly');
+      paidInp.style.background = '#ffffff';
+      paidInp.style.borderColor = 'var(--maroon)';
+      paidInp.focus();
+      playPosBeep(920, 0.04);
+    } else {
+      paidInp.setAttribute('readonly', 'true');
+      paidInp.style.background = '#f1f5f9';
+      paidInp.style.borderColor = '#cbd5e1';
+    }
+    syncNakadDueBanner();
+  }
+
+  function syncNakadDueBanner() {
+    const total = parseFloat(document.getElementById('billTotalMrp')?.value) || 0;
+    const paidEl = document.getElementById('paidInput');
+    const dueEl = document.getElementById('dueInput');
+    const banner = document.getElementById('baakiUdhaarBanner');
+    const chk = document.getElementById('unlockCashChk');
+    if (!paidEl || !dueEl || !banner) return;
+
+    const paidRaw = paidEl.value.trim();
+    const paidVal = parseFloat(paidRaw) || 0;
+
+    // When bill completes or resets to 0, hide Baaki Udhaar and re-lock Mila Cash
+    if (total <= 0) {
+      banner.style.display = 'none';
+      dueEl.value = 0;
+      if (chk && chk.checked && paidRaw === '') {
+        chk.checked = false;
+        paidEl.setAttribute('readonly', 'true');
+        paidEl.style.background = '#f1f5f9';
+      }
+      return;
+    }
+
+    // Show Baaki Udhaar ONLY when user entered cash less than total bill
+    if (paidRaw !== '' && paidVal < total) {
+      const due = Math.max(0, total - paidVal);
+      dueEl.value = due;
+      banner.style.display = 'flex';
+    } else {
+      dueEl.value = 0;
+      banner.style.display = 'none';
+    }
+  }
+
+  // Hook into bill changes so Due banner auto-hides the moment a bill is generated
+  setInterval(syncNakadDueBanner, 300);
+
+  // Non-destructive Auto-Suggestions for Stock Code, Customer Name, Gaon, Mobile
+  function refreshBillingDatalists() {
+    try {
+      const billingSec = document.getElementById('billing');
+      if (!billingSec) return;
+
+      const ensureDatalist = (id) => {
+        let dl = document.getElementById(id);
+        if (!dl) {
+          dl = document.createElement('datalist');
+          dl.id = id;
+          document.body.appendChild(dl);
+        }
+        return dl;
+      };
+
+      const dlCode = ensureDatalist('autoStockCodeList');
+      const dlName = ensureDatalist('autoCustNameList');
+      const dlCity = ensureDatalist('autoCustCityList');
+      const dlPhone = ensureDatalist('autoCustPhoneList');
+
+      if (typeof inventory !== 'undefined' && Array.isArray(inventory)) {
+        dlCode.innerHTML = inventory
+          .filter(i => (parseInt(i.qty) || 0) > 0)
+          .map(i => `<option value="${i.code}">${i.cat || 'Saree'} • ${i.color || ''} • ₹${i.mrp}</option>`)
+          .join('');
+      }
+
+      const names = new Set(), cities = new Set(), phones = new Set();
+      if (typeof khataList !== 'undefined' && Array.isArray(khataList)) {
+        khataList.forEach(k => {
+          if (k.name) names.add(k.name.trim());
+          if (k.city || k.gaon) cities.add((k.city || k.gaon).trim());
+          if (k.phone || k.mobile) phones.add((k.phone || k.mobile).trim());
+        });
+      }
+      if (typeof salesHistory !== 'undefined' && Array.isArray(salesHistory)) {
+        salesHistory.forEach(s => {
+          if (s.custName || s.customer) names.add((s.custName || s.customer).trim());
+          if (s.custCity || s.gaon) cities.add((s.custCity || s.gaon).trim());
+          if (s.custPhone || s.mobile) phones.add((s.custPhone || s.mobile).trim());
+        });
+      }
+
+      dlName.innerHTML = Array.from(names).filter(Boolean).map(v => `<option value="${v}">`).join('');
+      dlCity.innerHTML = Array.from(cities).filter(Boolean).map(v => `<option value="${v}">`).join('');
+      dlPhone.innerHTML = Array.from(phones).filter(Boolean).map(v => `<option value="${v}">`).join('');
+
+      billingSec.querySelectorAll('input').forEach(inp => {
+        if (inp.getAttribute('list')) return; // Keep existing datalist if already wired
+        const ph = (inp.placeholder || '').toLowerCase();
+        if (ph.includes('s+450') || ph.includes('code')) inp.setAttribute('list', 'autoStockCodeList');
+        else if (ph.includes('sunita')) inp.setAttribute('list', 'autoCustNameList');
+        else if (ph.includes('niwari')) inp.setAttribute('list', 'autoCustCityList');
+        else if (ph.includes('9876')) inp.setAttribute('list', 'autoCustPhoneList');
+      });
+    } catch (e) {}
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(refreshBillingDatalists, 400);
+  });
+  // [ANCHOR:NAKAD_SAFE_JS_END]
+
+
+  // [ANCHOR:CUSTOM_SELECT_JS_START]
+  let activeCustomSelectCallback = null;
+
+  function openCustomSelect(title, options, currentVal, callback) {
+    const modal = document.getElementById('customSelectModal');
+    const titleEl = document.getElementById('customSelectTitle');
+    const listEl = document.getElementById('customSelectOptionsList');
+    if (!modal || !listEl) return;
+
+    titleEl.innerText = title;
+    activeCustomSelectCallback = callback;
+
+    listEl.innerHTML = options.map(opt => `
+      <div class="custom-select-option ${opt.value === currentVal ? 'selected' : ''}" onclick="selectCustomOption('${opt.value}')">
+        <span>${opt.text}</span>
+        ${opt.value === currentVal ? '<span style="color:var(--maroon); font-weight:900;">✓</span>' : ''}
+      </div>
+    `).join('');
+
+    modal.style.display = 'flex';
+  }
+
+  function selectCustomOption(val) {
+    if (activeCustomSelectCallback) activeCustomSelectCallback(val);
+    closeCustomSelect();
+  }
+
+  function closeCustomSelect() {
+    const modal = document.getElementById('customSelectModal');
+    if (modal) modal.style.display = 'none';
+    activeCustomSelectCallback = null;
+  }
+
+  // Intercept native selects in Printer Hub to use clean bottom sheet
+  document.addEventListener('DOMContentLoaded', () => {
+    ['printerBrandProfile', 'printerConnMode', 'printerPaperSize', 'printerRenderMode', 'printerFeedLines', 'fCat', 'fStatus', 'payMode', 'udhaarPayMode', 'editCat', 'sCat'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (sel && !sel.dataset.intercepted) {
+        sel.dataset.intercepted = '1';
+        sel.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          const opts = Array.from(sel.options).map(o => ({ value: o.value, text: o.text }));
+          const label = sel.previousElementSibling ? sel.previousElementSibling.innerText : 'Chunein';
+          openCustomSelect(label, opts, sel.value, (val) => {
+            sel.value = val;
+            sel.dispatchEvent(new Event('change'));
+          });
+        });
+        sel.addEventListener('click', (e) => { e.preventDefault(); });
+      }
+    });
+  });
+  // [ANCHOR:CUSTOM_SELECT_JS_END]
+
+
+  function switchTab(id, el) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById(id).classList.add('active');
+    renderStock(); renderStats(); renderCustomerSection();
+    if (window.emitPosEvent) window.emitPosEvent('tab:switched', { id, el });
+  }
+
+  let scanTorchState = false;
+  let scanZoomLevel = 1;
+  let scanLocked = false;
+
+  function startScanner(mode) {
+    const modal = document.getElementById('scannerModal');
+    modal.style.display = 'block';
+    scanTorchState = false;
+    scanZoomLevel = 1;
+    scanLocked = false;
+    const tBtn = document.getElementById('scanTorchBtn');
+    const zBtn = document.getElementById('scanZoomBtn');
+    if (tBtn) tBtn.innerText = '🔦 Torch: OFF';
+    if (zBtn) zBtn.innerText = '🔍 Zoom: 1x';
+
+    if (html5QrCode) {
+      try { html5QrCode.clear(); } catch (e) {}
+    }
+
+    // Lock strictly to CODE_128 (your saree/bill tags) + QR_CODE + EAN_13 (cosmetics) + Hardware BarDetector
+    const formats = (typeof Html5QrcodeSupportedFormats !== 'undefined')
+      ? [
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.CODE_39
+        ]
+      : undefined;
+
+    html5QrCode = new Html5Qrcode("reader", {
+      formatsToSupport: formats,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      verbose: false
+    });
+
+    const scanConfig = {
+      fps: 30, // 3x faster frame sampling (every 33ms)
+      qrbox: (viewW, viewH) => ({
+        width: Math.floor(viewW * 0.86),
+        height: Math.floor(Math.min(viewH * 0.42, 135))
+      }),
+      aspectRatio: 1.333,
+      disableFlip: true, // Saves 50% CPU per frame
+      videoConstraints: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        advanced: [{ focusMode: "continuous" }]
+      }
+    };
+
+    html5QrCode.start(
+      { facingMode: "environment" },
+      scanConfig,
+      (decodedText) => {
+        if (scanLocked) return;
+        scanLocked = true;
+        playPosBeep(1150, 0.06);
+        if (navigator.vibrate) navigator.vibrate(40);
+        stopScanner();
+        if (mode === 'BILL') {
+          document.getElementById('scanInput').value = cleanCode(decodedText);
+          addItemToBill();
+        } else if (mode === 'DECODE') {
+          document.getElementById('decodeInput').value = decodedText.toUpperCase();
+          decodeAcc(decodedText, true);
+        }
+      },
+      () => {}
+    ).then(() => {
+      // Auto-apply slight 1.4x zoom if supported so phone focuses faster on small barcode stickers
+      try {
+        const caps = html5QrCode.getRunningTrackCameraCapabilities();
+        if (caps && caps.zoomFeature && caps.zoomFeature().isSupported()) {
+          const z = caps.zoomFeature();
+          const defaultZoom = Math.min(z.max(), Math.max(z.min(), 1.4));
+          z.apply(defaultZoom);
+        }
+      } catch (e) {}
+    }).catch(() => {
+      stopScanner();
+      showInlineMsg('billMsg', '📷 Camera permission allow karein.', 'error');
+    });
+  }
+
+  function toggleScannerTorch() {
+    if (!html5QrCode) return;
+    try {
+      const caps = html5QrCode.getRunningTrackCameraCapabilities();
+      if (caps && caps.torchFeature && caps.torchFeature().isSupported()) {
+        scanTorchState = !scanTorchState;
+        caps.torchFeature().apply(scanTorchState);
+        document.getElementById('scanTorchBtn').innerText = scanTorchState ? '🔦 Torch: ON' : '🔦 Torch: OFF';
+      } else {
+        alert('ℹ️ Is phone camera par Torch support nahi hai.');
+      }
+    } catch (e) {}
+  }
+
+  function toggleScannerZoom() {
+    if (!html5QrCode) return;
+    try {
+      const caps = html5QrCode.getRunningTrackCameraCapabilities();
+      if (caps && caps.zoomFeature && caps.zoomFeature().isSupported()) {
+        const z = caps.zoomFeature();
+        scanZoomLevel = scanZoomLevel === 1 ? Math.min(z.max(), 2.2) : 1;
+        z.apply(scanZoomLevel);
+        document.getElementById('scanZoomBtn').innerText = scanZoomLevel > 1 ? '🔍 Zoom: 2x' : '🔍 Zoom: 1x';
+      } else {
+        alert('ℹ️ Is phone par camera zoom support nahi hai.');
+      }
+    } catch (e) {}
+  }
+
+  function stopScanner() {
+    const modal = document.getElementById('scannerModal');
+    if (html5QrCode) {
+      const instance = html5QrCode;
+      html5QrCode = null;
+      instance.stop().then(() => {
+        instance.clear();
+        modal.style.display = 'none';
+      }).catch(() => {
+        modal.style.display = 'none';
+      });
+    } else {
+      modal.style.display = 'none';
+    }
+  }
+
+  // BONUS: Instant Hardware USB / Bluetooth Laser Barcode Gun Listener (0.001s Speed)
+  (function() {
+    let gunBuf = '';
+    let lastKeyTime = 0;
+    document.addEventListener('keydown', (e) => {
+      const activeTag = document.activeElement ? document.activeElement.tagName : '';
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+      const now = performance.now();
+      if (now - lastKeyTime > 65) gunBuf = '';
+      lastKeyTime = now;
+      if (e.key === 'Enter' && gunBuf.length >= 3) {
+        e.preventDefault();
+        const code = cleanCode(gunBuf);
+        gunBuf = '';
+        playPosBeep(1200, 0.05);
+        const activeSec = document.querySelector('.section.active')?.id;
+        if (activeSec === 'stats') {
+          document.getElementById('decodeInput').value = code;
+          decodeAcc(code, true);
+        } else {
+          document.getElementById('scanInput').value = code;
+          addItemToBill();
+        }
+      } else if (e.key.length === 1) {
+        gunBuf += e.key;
+      }
+    });
+  })();
+
+  function openBulkStockModal() {
+    const tbody = document.getElementById('bulkStockRows');
+    tbody.innerHTML = '';
+    addMoreBulkRows(5);
+    document.getElementById('bulkStockModal').style.display = 'flex';
+  }
+
+  function closeBulkStockModal() {
+    document.getElementById('bulkStockModal').style.display = 'none';
+  }
+
+  function addMoreBulkRows(count = 3) {
+    const tbody = document.getElementById('bulkStockRows');
+    for (let i = 0; i < count; i++) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="text" class="b-code" placeholder="SC201" oninput="this.value=cleanCode(this.value)"></td>
+        <td>
+          <select class="b-cat">
+            <option value="Daily Saree">Daily</option>
+            <option value="Fancy Saree">Fancy</option>
+            <option value="Petticoat">Petticoat</option>
+            <option value="Blouse/Fall">Blouse/Fall</option>
+            <option value="Cosmetic">Cosmetic</option>
+          </select>
+        </td>
+        <td><input type="text" class="b-col" placeholder="Red"></td>
+        <td><input type="number" class="b-qty" value="1"></td>
+        <td><input type="number" class="b-cost" placeholder="200"></td>
+        <td><input type="number" class="b-mrp" placeholder="350"></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  function saveBulkStockRows() {
+    const rows = Array.from(document.querySelectorAll('#bulkStockRows tr'));
+    let addedCount = 0;
+    rows.forEach(tr => {
+      const baseCode = cleanCode(tr.querySelector('.b-code').value);
+      const cat = tr.querySelector('.b-cat').value;
+      const color = tr.querySelector('.b-col').value.trim() || 'Standard';
+      const qty = parseInt(tr.querySelector('.b-qty').value, 10);
+      const cost = parseFloat(tr.querySelector('.b-cost').value) || 0;
+      const mrp = parseFloat(tr.querySelector('.b-mrp').value) || 0;
+
+      if (!baseCode || !Number.isInteger(qty) || qty <= 0 || !mrp) return;
+      const upperCol = color.toUpperCase();
+      const suffix = color !== 'Standard' ? (colorCodeMap[upperCol] || cleanCode(upperCol).slice(0, 2)) : '';
+      const finalCode = (suffix && !baseCode.endsWith(suffix)) ? `${baseCode}${suffix}` : baseCode;
+
+      const existing = inventory.find(i => i.code === finalCode);
+      if (existing) {
+        existing.qty += qty;
+        if (cost > 0) existing.cost = cost;
+        existing.mrp = mrp;
+      } else {
+        inventory.push({ code: finalCode, cat, color, qty, cost: cost || Math.round(mrp * 0.65), mrp });
+      }
+      addedCount++;
+    });
+
+    if (addedCount === 0) {
+      alert('⚠️ Kam se kam 1 row mein Code, Qty (>0) aur MRP zaroor bharein!');
+      return;
+    }
+    playPosBeep(950, 0.09);
+    syncToCloud();
+    closeBulkStockModal();
+    renderStock();
+    showInlineMsg('stockMsg', `✅ Excel Bulk Entry se ${addedCount} items stock mein jud gaye!`, 'success');
+  }
+
+  function saveStockItem() {
+    if (!ownerUnlocked &&
+        typeof window.requireOwnerPermission === 'function') {
+      window.requireOwnerPermission(
+        'Add / Update Stock Item', () => saveStockItem()
+      );
+      return;
+    }
+    const baseCode = cleanCode(document.getElementById('sCode').value);
+    const cat = document.getElementById('sCat').value;
+    const colorRaw = document.getElementById('sColor').value.trim();
+    const qty = parseInt(document.getElementById('sQty').value, 10);
+    const cost = parseFloat(document.getElementById('sCost').value) || 0;
+    const mrp = parseFloat(document.getElementById('sMrp').value) || 0;
+
+    if (!baseCode || !Number.isInteger(qty) || qty <= 0 || cost <= 0 || !mrp) {
+      showInlineMsg('stockMsg', '⚠️ Kripya sahi Base Code, Qty (>0), Cost aur MRP bharein!', 'error');
+      return;
+    }
+
+    const colors = colorRaw ? colorRaw.split(',').map(c => c.trim()).filter(Boolean) : ['Standard'];
+    let addedCodes = [];
+
+    colors.forEach(color => {
+      let finalCode = baseCode;
+      if (colorRaw) {
+        const upperCol = color.toUpperCase();
+        const suffix = colorCodeMap[upperCol] || cleanCode(upperCol).slice(0, 2);
+        if (!baseCode.endsWith(suffix)) {
+          finalCode = `${baseCode}${suffix}`;
+        }
+      }
+
+      const existing = inventory.find(i => i.code === finalCode);
+      if (existing) {
+        existing.qty += qty;
+        existing.cost = cost;
+        existing.mrp = mrp;
+        existing.color = color || existing.color;
+      } else {
+        inventory.push({ code: finalCode, cat, color, qty, cost, mrp });
+      }
+      addedCodes.push(`${finalCode} (${color})`);
+    });
+
+    if (window.emitPosEvent) window.emitPosEvent('stock:itemSaved', { baseCode, colorRaw });
+    playPosBeep(880, 0.07);
+    syncToCloud();
+    renderStock();
+    document.getElementById('sCode').value = '';
+    document.getElementById('sColor').value = '';
+    if (typeof syncColorChipsUI === 'function') syncColorChipsUI();
+    if (typeof syncColorChipsUI === 'function') syncColorChipsUI();
+    showInlineMsg('stockMsg', `✅ Stock jud gaya & Cloud par sync ho gaya: ` + addedCodes.join(', '), 'success');
+  }
+
+  function renderEditPaletteGrid() {
+    const grid = document.getElementById('editPaletteGrid');
+    if (!grid || grid.dataset.built) return;
+    grid.dataset.built = '1';
+    let html = '';
+    if (typeof SAREE_COLOR_DICT !== 'undefined') {
+      SAREE_COLOR_DICT.forEach(c => {
+        html += `<span class="color-chip" style="font-size:10px; padding:4px 6px;" onclick="selectEditColor('${c.name}')"><i class="swatch-dot" style="width:10px;height:10px;background:${c.hex};"></i>${c.name}</span>`;
+      });
+    }
+    grid.innerHTML = html;
+  }
+
+  function toggleEditColorDrawer() {
+    renderEditPaletteGrid();
+    const drawer = document.getElementById('editColorDrawer');
+    if (drawer) drawer.classList.toggle('open');
+  }
+
+  function selectEditColor(colName) {
+    document.getElementById('editColor').value = colName;
+    const drawer = document.getElementById('editColorDrawer');
+    if (drawer) drawer.classList.remove('open');
+    playPosBeep(920, 0.05);
+  }
+
+  function openEditStockModal(code) {
+    if (!ownerUnlocked &&
+        typeof window.requireOwnerPermission === 'function') {
+      window.requireOwnerPermission(
+        'Edit Stock Item (' + code + ')',
+        () => openEditStockModal(code)
+      );
+      return;
+    }
+    const item = inventory.find(i => i.code === code);
+    if (!item) return;
+    document.getElementById('editOrigCode').value = item.code;
+    document.getElementById('editCode').value = item.code;
+    document.getElementById('editCat').value = item.cat || 'Daily Saree';
+    document.getElementById('editColor').value = item.color || 'Standard';
+    document.getElementById('editQty').value = item.qty;
+    document.getElementById('editCost').value = item.cost;
+    document.getElementById('editMrp').value = item.mrp;
+    const drawer = document.getElementById('editColorDrawer');
+    if (drawer) drawer.classList.remove('open');
+    document.getElementById('editStockModal').style.display = 'flex';
+    if (window.emitPosEvent) window.emitPosEvent('stock:editModalOpened', { code, item });
+  }
+
+  function closeEditStockModal() {
+    document.getElementById('editStockModal').style.display = 'none';
+  }
+
+  function saveEditedStock() {
+    if (!ownerUnlocked &&
+        typeof window.requireOwnerPermission === 'function') {
+      window.requireOwnerPermission(
+        'Save Stock Changes', () => saveEditedStock()
+      );
+      return;
+    }
+    const origCode = document.getElementById('editOrigCode').value;
+    const newCode = cleanCode(document.getElementById('editCode').value);
+    const cat = document.getElementById('editCat').value;
+    const color = document.getElementById('editColor').value.trim() || 'Standard';
+    const qty = parseInt(document.getElementById('editQty').value, 10);
+    const cost = parseFloat(document.getElementById('editCost').value) || 0;
+    const mrp = parseFloat(document.getElementById('editMrp').value) || 0;
+
+    if (!newCode || !Number.isInteger(qty) || qty < 0 || !mrp) return;
+    if (newCode !== origCode && inventory.some(i => i.code === newCode)) {
+      showInlineMsg('stockMsg', '⚠️ Ye stock code pehle se maujood hai!', 'error');
+      return;
+    }
+
+    const item = inventory.find(i => i.code === origCode);
+    if (item) {
+      item.code = newCode;
+      item.cat = cat;
+      item.color = color;
+      item.qty = qty;
+      if (ownerUnlocked && cost >= 0) item.cost = cost;
+      item.mrp = mrp;
+    }
+
+    if (window.emitPosEvent) window.emitPosEvent('stock:itemEdited', { origCode, newCode, item });
+    syncToCloud();
+    closeEditStockModal();
+    renderStock();
+    showInlineMsg('stockMsg', `✅ ${newCode} safaltapoorvak update ho gaya!`, 'success');
+  }
+
+  function deleteStockItem(code, btnEl) {
+    if (!ownerUnlocked &&
+        typeof window.requireOwnerPermission === 'function') {
+      window.requireOwnerPermission(
+        'Delete Stock Item (' + code + ')',
+        () => deleteStockItem(code, null)
+      );
+      return;
+    }
+    if (btnEl && !btnEl.classList.contains('confirming')) {
+      btnEl.classList.add('confirming');
+      btnEl.innerText = 'Sure?';
+      setTimeout(() => {
+        if (btnEl) { btnEl.classList.remove('confirming'); btnEl.innerText = '✕'; }
+      }, 2500);
+      return;
+    }
+    if (window.emitPosEvent) {
+      window.emitPosEvent('stock:itemDeleted', { code });
+    } else if (typeof markTombstone === 'function') {
+      markTombstone('inventory', code);
+    }
+    inventory = inventory.filter(i => i.code !== code);
+    syncToCloud();
+    renderStock();
+  }
+
+  function shareLowStockMandiList() {
+    const lowItems = inventory.filter(i => i.qty <= 2);
+    if (lowItems.length === 0) {
+      showInlineMsg('stockMsg', '✅ Sabhi items paryapt stock mein hain!', 'success');
+      return;
+    }
+    const text = '📝 *दीदी की दुकान (SHAKYA COSMETIC) - MANDI KHARIDARI LIST*\n' +
+      lowItems.map(i => '• *' + i.code + '* (' + i.cat + ' - ' + i.color + ') — Bacha Qty: *' + i.qty + '*').join('\n');
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  }
+
+  function getSoldCodesSet() {
+    const soldSet = new Set();
+    sales.forEach(s => {
+      if (!s || s.exchanged) return;
+      (s.items || []).forEach(it => {
+        if (it && !it.returned) soldSet.add(cleanCode(it.code));
+      });
+    });
+    return soldSet;
+  }
+
+  function getFilteredInventory() {
+    const q = (document.getElementById('fSearch')?.value || '').trim().toUpperCase();
+    const cat = document.getElementById('fCat')?.value || 'ALL';
+    const status = document.getElementById('fStatus')?.value || 'ALL';
+    const fMahajanVal = document.getElementById('fMahajan')?.value || 'ALL';
+    const fRackVal = document.getElementById('fRack')?.value || 'ALL';
+    const soldCodes = status === 'DEAD' ? getSoldCodesSet() : null;
+
+    return inventory.filter(item => {
+      if (!item) return false;
+      const matchQuery = !q ||
+        item.code.toUpperCase().includes(q) ||
+        (item.color && item.color.toUpperCase().includes(q)) ||
+        (item.cat && item.cat.toUpperCase().includes(q)) ||
+        (item.rack && item.rack.toUpperCase().includes(q)) ||
+        (item.supplier && item.supplier.toUpperCase().includes(q)) ||
+        String(item.mrp).includes(q) ||
+        (ownerUnlocked && String(item.cost).includes(q));
+
+      const matchCat = (cat === 'ALL') || (item.cat === cat);
+      let matchStatus = true;
+      if (status === 'INSTOCK') matchStatus = item.qty > 0;
+      else if (status === 'LOW') matchStatus = item.qty > 0 && item.qty <= 2;
+      else if (status === 'DEAD') matchStatus = item.qty > 0 && !soldCodes.has(cleanCode(item.code));
+      else if (status === 'OUT') matchStatus = item.qty <= 0;
+
+      const matchMahajan = (fMahajanVal === 'ALL') ||
+        (item.supplier && item.supplier.toUpperCase().includes(fMahajanVal.toUpperCase()));
+
+      let matchRack = true;
+      if (fRackVal === 'UNSET') matchRack = !item.rack;
+      else if (fRackVal !== 'ALL') {
+        const rClean = window.cleanRackStr ? window.cleanRackStr(item.rack) : (item.rack || '');
+        matchRack = (rClean === fRackVal);
+      }
+      return matchQuery && matchCat && matchStatus && matchMahajan && matchRack;
+    });
+  }
+
+  function resetStockFilters() {
+    ['fSearch','fCat','fStatus','fMahajan','fRack'].forEach(
+      (id, idx) => {
+      const el = document.getElementById(id);
+      if (el) el.value = idx === 0 ? '' : 'ALL';
+    });
+    renderStock();
+  }
+
+  function renderStock() {
+    renderQuickCatalogStrip();
+    const filtered = getFilteredInventory();
+    const tbody = document.getElementById('stockTableBody');
+    const soldCodes = getSoldCodesSet();
+
+    const lowCount = inventory.filter(i => i && i.qty <= 2).length;
+    const lowBadge = document.getElementById('lowStockBadge');
+    if (lowBadge) {
+      lowBadge.style.display = lowCount > 0 ? 'inline-block' : 'none';
+      lowBadge.innerText = lowCount;
+    }
+
+    let totalPcs = 0, totalCostVal = 0;
+    filtered.forEach(i => {
+      const q = Math.max(0, i.qty);
+      totalPcs += q;
+      totalCostVal += (q * i.cost);
+    });
+
+    const sumBar = document.getElementById('stockSummaryBar');
+    if (sumBar) {
+      sumBar.innerHTML = `
+        <span>📋 Items: <b>${filtered.length}</b></span>
+        <span>📦 Kul Pcs: <b>${totalPcs}</b></span>
+        <span>💰 Kharid Value: <b>${ownerUnlocked ? '₹' + totalCostVal : '🔒 ***'}</b></span>
+      `;
+    }
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:14px; color:#888;">Is filter mein koi item nahi mila.</td></tr>`;
+      if (window.emitPosEvent) window.emitPosEvent('stock:rendered', { filtered: [] });
+      return;
+    }
+
+    tbody.innerHTML = filtered.map(item => {
+      const isUnsold = item.qty > 0 &&
+        !soldCodes.has(cleanCode(item.code));
+      const costHtml = ownerUnlocked
+        ? ('₹' + item.cost)
+        : ('🔒 ' + encodeSecretCost(item.cost));
+      const qtyCls = item.qty <= 0
+        ? 'stock-qty-badge out'
+        : (item.qty <= 2 ? 'stock-qty-badge low'
+                         : 'stock-qty-badge ok');
+      return `
+        <tr>
+          <td class="stock-item-cell">
+            <div class="stock-top-line">
+              <span class="code-cell">${item.code}</span>
+              ${isUnsold ? '<span>🐢</span>' : ''}
+            <span class="stock-cat-title">${item.cat}</span>
+            </div>
+            <div class="stock-color-sub">${item.color}</div>
+            <div class="stock-meta-badges"></div>
+          </td>
+          <td class="stock-price-cell">
+            <div class="stock-mrp-val">₹${item.mrp}</div>
+            <span class="stock-cost-pill">${costHtml}</span>
+          </td>
+          <td class="stock-qty-cell">
+            <span class="${qtyCls}">${item.qty}</span>
+          </td>
+          <td class="stock-action-cell">
+            <div class="stock-action-grid">
+              <button class="btn-action btn-bill"
+                onclick="quickAdd('${item.code}')">
+                +Bill</button>
+              <button class="btn-action btn-tag"
+                onclick="printSareeTag('${item.code}')">
+                Tag</button>
+              <button class="btn-action btn-edit"
+                onclick="openEditStockModal('${item.code}')">
+                ✏️</button>
+              <button class="btn-action btn-del"
+              onclick="deleteStockItem('${item.code}',this)">
+                ✕</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+    if (window.emitPosEvent) window.emitPosEvent('stock:rendered', { filtered });
+  }
+  // [JS-07: STOCK SEARCH, GORILLA SHORT-CODE & BULK STOCK END]

@@ -1,0 +1,520 @@
+// src/features/inventory/stock-adjustments.js — Rack Location & Physical Stock Audit
+(function() {
+  const PRESET_RACKS = ["R-1", "R-2", "R-3", "R-4", "R-5", "C-1", "C-2", "B-1", "G-1"];
+  let auditCountsMap = {}; // code -> physical counted qty
+  let auditViewTab = "ALL";
+  let isAuditScanActive = false;
+
+  // Auto-bust old Service Worker caches when this new patch stamp loads
+  try {
+    const PATCH_STAMP = "1795342064";
+    if (localStorage.getItem("sc_rack_patch_stamp") !== PATCH_STAMP) {
+      localStorage.setItem("sc_rack_patch_stamp", PATCH_STAMP);
+      if ("caches" in window) {
+        /* Preserve offline PWA cache */
+      }
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.update()));
+      }
+    }
+  } catch (e) {}
+
+  const getLiveInventory = () => window.getLiveInventory ? window.getLiveInventory() : (typeof inventory !== "undefined" ? inventory : []);
+
+  function cleanRackStr(val) {
+    return (val || "").toString().trim().toUpperCase();
+  }
+
+  // 1. Inject Rack / Khaana Inputs into Stock Add Card, Edit Modal, Mandi Studio & Stock Filter
+  function injectRackFieldsDOM() {
+    // A. Single Stock Add Card (#stock .card:first-child)
+    const stockMsg = document.getElementById("stockMsg");
+    if (stockMsg && !document.getElementById("sRackInput")) {
+      const wrap = document.createElement("div");
+      wrap.className = "sh-rack-input-wrap";
+      wrap.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <span style="font-size:11.5px; font-weight:900; color:var(--maroon-dark); white-space:nowrap;">
+            🗄️ Rack / Khaana No. (Tag par BADA chhapega):
+          </span>
+          <input type="text" id="sRackInput" list="shakyaRackList" placeholder="Ex: R-1, R-10" oninput="this.value=this.value.toUpperCase()" style="margin:0; padding:5px 8px; height:30px; font-size:12.5px; font-weight:900; max-width:130px; background:#fff; border:1.5px solid var(--maroon);">
+        </div>
+        <div class="sh-rack-chips" id="sQuickRackChips">
+          ${PRESET_RACKS.map(r => `<span class="sh-rack-chip" onclick="pickSingleStockRack('${r}', this)">🗄️ ${r}</span>`).join("")}
+        </div>
+      `;
+      stockMsg.parentElement.insertBefore(wrap, stockMsg);
+    }
+
+    // B. Quick Edit Stock Modal (#editStockModal)
+    const editMrpEl = document.getElementById("editMrp");
+    if (editMrpEl && !document.getElementById("editRackInput")) {
+      const mrpRow = editMrpEl.closest(".row");
+      if (mrpRow) {
+        const rackRow = document.createElement("div");
+        rackRow.className = "row";
+        rackRow.innerHTML = `
+          <div>
+            <label>🗄️ Rack / Shelf / Khaana No. (Tag & Wapsi ke liye)</label>
+            <input type="text" id="editRackInput" list="shakyaRackList" placeholder="Ex: R-1, R-10, C-1, G-1" oninput="this.value=this.value.toUpperCase()">
+          </div>
+        `;
+        mrpRow.parentElement.insertBefore(rackRow, mrpRow.nextSibling);
+      }
+    }
+
+    // C. Mandi Set Studio (#msStepPane2 inside #bulkStockModal)
+    const msMrpInp = document.getElementById("msMrpInp");
+    if (msMrpInp && !document.getElementById("msRackInp")) {
+      const grid3 = msMrpInp.closest(".ms-grid-3") || msMrpInp.parentElement?.parentElement;
+      if (grid3) {
+        const rDiv = document.createElement("div");
+        rDiv.style.marginTop = "6px";
+        rDiv.innerHTML = `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <span class="ms-lbl" style="margin:0;">🗄️ Is Set ka Rack / Khaana No.:</span>
+            <input type="text" id="msRackInp" list="shakyaRackList" class="ms-inp" placeholder="Ex: R-1" oninput="this.value=this.value.toUpperCase()" style="max-width:120px; height:32px !important;">
+          </div>
+        `;
+        grid3.parentElement.insertBefore(rDiv, grid3.nextSibling);
+      }
+    }
+
+    // D. Stock Filter Box (#stock .filter-box) -> Add Rack Filter Dropdown (#fRack)
+    const filterBox = document.querySelector("#stock .filter-box");
+    if (filterBox && !document.getElementById("fRack")) {
+      const fMahajan = document.getElementById("fMahajan");
+      const targetRow = fMahajan ? fMahajan.closest(".row") : null;
+      if (targetRow) {
+        const rCol = document.createElement("div");
+        rCol.innerHTML = `
+          <select id="fRack" onchange="renderStock()" style="margin-top:0; padding:6px; font-size:12px; font-weight:700;">
+            <option value="ALL">🗄️ All Racks / Khaana</option>
+          </select>
+        `;
+        targetRow.appendChild(rCol);
+      } else {
+        const newRow = document.createElement("div");
+        newRow.className = "row";
+        newRow.style.marginTop = "6px";
+        newRow.innerHTML = `
+          <div>
+            <select id="fRack" onchange="renderStock()" style="margin-top:0; padding:6px; font-size:12px; font-weight:700;">
+              <option value="ALL">🗄️ All Racks / Khaana</option>
+            </select>
+          </div>
+        `;
+        filterBox.appendChild(newRow);
+      }
+    }
+
+    // E. Add "📋 Stock Audit" button in Stock card header
+    const mandiBtn = document.querySelector("#stock button[onclick*='shareLowStockMandiList']");
+    if (mandiBtn && mandiBtn.parentElement && !document.getElementById("openAuditStudioBtn")) {
+      const btn = document.createElement("button");
+      btn.id = "openAuditStudioBtn";
+      btn.type = "button";
+      btn.className = "small";
+      btn.style.cssText = "margin:0 3px 0 0; padding:5px 8px; font-size:11px; background:#0f172a; color:#fde047; font-weight:800; border:1px solid #f59e0b;";
+      btn.innerHTML = "📋 Stock Audit";
+      btn.onclick = () => openShAuditModal();
+      mandiBtn.parentElement.insertBefore(btn, mandiBtn);
+    }
+
+    refreshRackFilterDropdown();
+  }
+
+  window.pickSingleStockRack = function(rackCode, el) {
+    const inp = document.getElementById("sRackInput");
+    if (inp) inp.value = rackCode;
+    document.querySelectorAll("#sQuickRackChips .sh-rack-chip").forEach(c => c.classList.remove("active"));
+    if (el) el.classList.add("active");
+    if (typeof playPosBeep === "function") playPosBeep(920, 0.04);
+  };
+
+  function refreshRackFilterDropdown() {
+    const fRack = document.getElementById("fRack");
+    if (!fRack) return;
+    const cur = fRack.value || "ALL";
+    const racks = new Set();
+    getLiveInventory().forEach(i => {
+      if (i && i.rack) racks.add(cleanRackStr(i.rack));
+    });
+    const sorted = Array.from(racks).sort();
+    fRack.innerHTML = `<option value="ALL">🗄️ All Racks (${sorted.length})</option>` +
+      sorted.map(r => `<option value="${r}">🗄️ Rack: ${r}</option>`).join("") +
+      `<option value="UNSET">❓ Bina Rack Wale</option>`;
+    if (cur === "ALL" || cur === "UNSET" || sorted.includes(cur)) {
+      fRack.value = cur;
+    }
+  }
+
+  window.quickPromptItemRack = function(code) {
+    const item = getLiveInventory().find(i => i && i.code === code);
+    if (!item) return;
+    const inp = prompt(`🗄️ ${item.code} (${item.cat} - ${item.color}) ka Rack / Khaana No. daalein:\n(Ex: R-1, R-2, R-10, C-1, B-1, G-1)`, item.rack || "R-1");
+    if (inp !== null) {
+      item.rack = cleanRackStr(inp);
+      if (typeof syncToCloud === "function") syncToCloud();
+      if (typeof renderStock === "function") renderStock();
+      if (typeof playPosBeep === "function") playPosBeep(980, 0.05);
+    }
+  };
+
+  // ==========================================================================
+  // 2. JUMBO, EYE-CATCHING RACK BANNER ON PRINTED BARCODE TAGS
+  // ==========================================================================
+  function hookBarcodeTagPrintingWithRack() {
+    /* Handled by QR tag generator in tag-printing.js */
+  }
+  // Also upgrade any already-rendered old ".tag-rack-pill" on screen immediately
+  function upgradeExistingTagZoneIfPresent() {
+    const oldPill = document.querySelector("#printZone .tag-rack-pill");
+    if (oldPill) {
+      const rawTxt = (oldPill.textContent || "").replace(/RACK\s*:/i, "").replace("🗄️", "").trim();
+      if (rawTxt) {
+        const hero = document.createElement("div");
+        hero.className = "tag-rack-hero";
+        hero.innerHTML = `
+          <div class="tag-rack-hero-left">
+            <span class="rk-sub">ख़ाना / जगह</span>
+            <strong class="rk-lbl">RACK</strong>
+          </div>
+          <div class="tag-rack-hero-right">${rawTxt}</div>
+        `;
+        oldPill.replaceWith(hero);
+      }
+    }
+  }
+
+  // 3. Hook Stock Save, Edit, Filter & Table Render for Rack Support
+  function hookStockForRack() {
+    injectRackFieldsDOM();
+    if (!window.onPosEvent || hookStockForRack._subscribed) return;
+    hookStockForRack._subscribed = true;
+
+    window.onPosEvent('stock:itemSaved', ({ baseCode, colorRaw }) => {
+      const rackVal = cleanRackStr(document.getElementById('sRackInput')?.value || '');
+      if (baseCode && rackVal) {
+        const colors = colorRaw ? colorRaw.split(',').map(x => x.trim()).filter(Boolean) : ['Standard'];
+        colors.forEach(color => {
+          let finalCode = baseCode;
+          if (colorRaw) {
+            const upperCol = color.toUpperCase();
+            const suffix = (typeof colorCodeMap === 'object' && colorCodeMap[upperCol]) || cleanCode(upperCol).slice(0, 2);
+            if (!baseCode.endsWith(suffix)) finalCode = baseCode + suffix;
+          }
+          const item = getLiveInventory().find(i => i && i.code === finalCode);
+          if (item) item.rack = rackVal;
+        });
+      }
+    });
+
+    window.onPosEvent('stock:editModalOpened', ({ item }) => {
+      injectRackFieldsDOM();
+      const rEl = document.getElementById('editRackInput');
+      if (rEl && item) rEl.value = item.rack || '';
+    });
+
+    window.onPosEvent('stock:itemEdited', ({ item }) => {
+      if (item) {
+        item.rack = cleanRackStr(document.getElementById('editRackInput')?.value || '');
+      }
+    });
+
+    window.onPosEvent('studio:committed', ({ savedGoodsForBill, studioRack }) => {
+      if (studioRack && Array.isArray(savedGoodsForBill)) {
+        savedGoodsForBill.forEach(g => {
+          const item = getLiveInventory().find(i => i && i.code === g.code);
+          if (item && !item.rack) item.rack = studioRack;
+        });
+      }
+    });
+
+    window.onPosEvent('stock:rendered', ({ filtered }) => {
+      injectRackFieldsDOM();
+      const list = Array.isArray(filtered) ? filtered : window.getFilteredInventory();
+      const rows = document.querySelectorAll('#stockTableBody tr');
+      rows.forEach((tr, idx) => {
+        const item = list[idx];
+        if (!item) return;
+        const secondTd = tr.querySelector('.stock-meta-badges') || tr.children[0];
+        if (secondTd && !secondTd.querySelector('.sh-rack-badge')) {
+          const badge = document.createElement('span');
+          badge.className = item.rack ? 'sh-rack-badge' : 'sh-rack-badge unset';
+          badge.innerHTML = item.rack ? ('🗄️ Rack: ' + item.rack) : '🗄️ +Rack';
+          badge.onclick = (e) => { e.stopPropagation(); quickPromptItemRack(item.code); };
+          secondTd.appendChild(badge);
+        }
+      });
+    });
+  }
+  // ==========================================================================
+  // 4. FAST PHYSICAL STOCK AUDIT & RACK VERIFICATION ENGINE
+  // ==========================================================================
+  window.openShAuditModal = function() {
+    const sel = document.getElementById("auRackFilterSel");
+    if (sel) {
+      const racks = new Set();
+      getLiveInventory().forEach(i => { if (i && i.rack) racks.add(cleanRackStr(i.rack)); });
+      const sorted = Array.from(racks).sort();
+      sel.innerHTML = `<option value="ALL">🗄️ Sabhi Racks (Full Shop Audit)</option>` +
+        sorted.map(r => `<option value="${r}">🗄️ Sirf Rack: ${r} Audit Karein</option>`).join("") +
+        `<option value="UNSET">❓ Bina Rack Wale Items</option>`;
+    }
+
+    document.getElementById("auLiveScanAlert").style.display = "none";
+    renderAuditList();
+    document.getElementById("shAuditModal").style.display = "flex";
+  };
+
+  window.closeShAuditModal = function() {
+    isAuditScanActive = false;
+    document.getElementById("shAuditModal").style.display = "none";
+  };
+
+  window.onAuditRackFilterChange = function() {
+    document.getElementById("auLiveScanAlert").style.display = "none";
+    renderAuditList();
+  };
+
+  window.setAuditViewTab = function(tab) {
+    auditViewTab = tab;
+    document.getElementById("auTabAll")?.classList.toggle("active", tab === "ALL");
+    document.getElementById("auTabDiff")?.classList.toggle("active", tab === "DIFF");
+    document.getElementById("auTabMatch")?.classList.toggle("active", tab === "MATCH");
+    renderAuditList();
+  };
+
+  window.resetCurrentAuditCounts = function() {
+    if (!confirm("Kya aap abhi tak gini hui Physical Audit ginti 0 par reset karna chahte hain?")) return;
+    auditCountsMap = {};
+    document.getElementById("auLiveScanAlert").style.display = "none";
+    renderAuditList();
+  };
+
+  function showAuditBanner(html, isWarn) {
+    const b = document.getElementById("auLiveScanAlert");
+    if (!b) return;
+    b.style.display = "block";
+    b.style.background = isWarn ? "#fef2f2" : "#ecfdf5";
+    b.style.color = isWarn ? "#991b1b" : "#065f46";
+    b.style.border = isWarn ? "1.5px solid #f87171" : "1.5px solid #34d399";
+    b.innerHTML = html;
+  }
+
+  window.adjustAuditCount = function(code, delta) {
+    const item = getLiveInventory().find(i => i && i.code === code);
+    if (!item) return;
+
+    const cur = auditCountsMap[code] || 0;
+    const next = Math.max(0, cur + delta);
+    auditCountsMap[code] = next;
+
+    const targetRack = document.getElementById("auRackFilterSel")?.value || "ALL";
+    const itemRack = cleanRackStr(item.rack);
+
+    if (delta > 0) {
+      if (typeof playPosBeep === "function") playPosBeep(1040, 0.06);
+      if (targetRack !== "ALL" && targetRack !== "UNSET" && itemRack && itemRack !== targetRack) {
+        showAuditBanner(`⚠️ <b>गलत रैक अलर्ट!</b> <b>${item.code}</b> (${item.color}) की असली जगह <b>🗄️ Rack ${itemRack}</b> है! इसे वापस <b>${itemRack}</b> में रखें।`, true);
+      } else {
+        showAuditBanner(`✅ <b>${item.code}</b> (${item.cat} - ${item.color}) • गिना गया: <b>${next} / ${item.qty}</b> ${itemRack ? '• 🗄️ <b>Rack: ' + itemRack + '</b>' : ''}`, false);
+      }
+    }
+
+    renderAuditList();
+  };
+
+  window.auditCountByCodeInput = function() {
+    const inp = document.getElementById("auScanCodeInp");
+    const code = cleanCode(inp?.value || "");
+    if (!code) return;
+    const item = getLiveInventory().find(i => i && cleanCode(i.code) === code);
+    if (!item) {
+      showAuditBanner(`❌ Code <b>"${code}"</b> Stock mein nahi mila!`, true);
+      if (typeof playPosBeep === "function") playPosBeep(420, 0.15);
+      return;
+    }
+    if (inp) inp.value = "";
+    adjustAuditCount(item.code, 1);
+  };
+
+  window.startAuditCameraScanner = function() {
+    if (typeof startScanner !== "function") return;
+    isAuditScanActive = true;
+    startScanner("AUDIT_CUSTOM");
+  };
+
+  // Intercept scanner decode when isAuditScanActive is true
+  function hookScannerForAudit() { /* Handled natively by scanner.js AUDIT_CUSTOM */ }
+
+  function getScopedAuditItems() {
+    const rackSel = document.getElementById("auRackFilterSel")?.value || "ALL";
+    const q = cleanCode(document.getElementById("auScanCodeInp")?.value || "");
+    return getLiveInventory().filter(i => {
+      if (!i) return false;
+      if (rackSel === "UNSET" && i.rack) return false;
+      if (rackSel !== "ALL" && rackSel !== "UNSET" && cleanRackStr(i.rack) !== rackSel) return false;
+      if (q && !cleanCode(i.code).includes(q) && !cleanCode(i.color || "").includes(q)) return false;
+      return true;
+    });
+  }
+
+  window.renderAuditList = function() {
+    const listContainer = document.getElementById("auItemsListContainer");
+    if (!listContainer) return;
+
+    const scoped = getScopedAuditItems();
+    let sysTotal = 0, phyTotal = 0, missingTotal = 0, extraTotal = 0;
+    let diffItemsCount = 0, matchItemsCount = 0;
+
+    scoped.forEach(i => {
+      const sys = Math.max(0, Number(i.qty) || 0);
+      const phy = auditCountsMap[i.code] || 0;
+      sysTotal += sys;
+      phyTotal += phy;
+      if (phy < sys) {
+        missingTotal += (sys - phy);
+        diffItemsCount++;
+      } else if (phy > sys) {
+        extraTotal += (phy - sys);
+        diffItemsCount++;
+      } else {
+        matchItemsCount++;
+      }
+    });
+
+    document.getElementById("auKpiSys").textContent = sysTotal + " Pcs";
+    document.getElementById("auKpiPhy").textContent = phyTotal + " Pcs";
+    document.getElementById("auKpiMissing").textContent = missingTotal + " Pcs";
+    document.getElementById("auKpiExtra").textContent = "+" + extraTotal + " Pcs";
+
+    document.getElementById("auCntAll").textContent = scoped.length;
+    document.getElementById("auCntDiff").textContent = diffItemsCount;
+    document.getElementById("auCntMatch").textContent = matchItemsCount;
+
+    const filtered = scoped.filter(i => {
+      const sys = Math.max(0, Number(i.qty) || 0);
+      const phy = auditCountsMap[i.code] || 0;
+      if (auditViewTab === "DIFF") return phy !== sys;
+      if (auditViewTab === "MATCH") return phy === sys;
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      listContainer.innerHTML = `<div style="text-align:center; padding:20px; color:#64748b; font-size:12px;">Is filter mein koi stock item nahi hai.</div>`;
+      return;
+    }
+
+    listContainer.innerHTML = filtered.map(i => {
+      const sys = Math.max(0, Number(i.qty) || 0);
+      const phy = auditCountsMap[i.code] || 0;
+      const diff = phy - sys;
+      let statusCls = "shortage";
+      let diffBadge = `<span style="color:#dc2626; font-weight:900;">${diff} कम (Gayab)</span>`;
+      if (diff === 0) {
+        statusCls = "matched";
+        diffBadge = `<span style="color:#059669; font-weight:900;">✅ बराबर</span>`;
+      } else if (diff > 0) {
+        statusCls = "excess";
+        diffBadge = `<span style="color:#d97706; font-weight:900;">+${diff} ज्यादा</span>`;
+      }
+
+      return `
+        <div class="sh-au-row ${statusCls}">
+          <div style="flex:1;">
+            <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+              <b style="font-size:13px; color:#0f172a;">${i.code}</b>
+              <span class="sh-rack-badge ${i.rack ? '' : 'unset'}" onclick="quickPromptItemRack('${i.code}'); renderAuditList();">
+                🗄️ ${i.rack ? 'Rack: ' + i.rack : '+Set Rack'}
+              </span>
+              <span style="font-size:11px; font-weight:800; color:#475569;">₹${i.mrp}</span>
+            </div>
+            <div style="font-size:11px; color:#334155; margin-top:2px;">
+              ${i.cat} (<b>${i.color}</b>) • कंप्यूटर: <b>${sys}</b> | ${diffBadge}
+            </div>
+          </div>
+
+          <div class="sh-au-stepper">
+            <button type="button" class="sh-au-step-btn" onclick="adjustAuditCount('${i.code}', -1)">−</button>
+            <div style="min-width:34px; text-align:center; font-size:14px; font-weight:900; color:#0f172a;">${phy}</div>
+            <button type="button" class="sh-au-step-btn plus" onclick="adjustAuditCount('${i.code}', 1)">+1</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  };
+
+  window.applyAuditCountsToInventory = function() {
+    const countedCodes = Object.keys(auditCountsMap);
+    if (countedCodes.length === 0) {
+      alert("⚠️ Pehle kam se kam 1 item scan karein ya '+1' dabakar ginein!");
+      return;
+    }
+    const rackSel = document.getElementById("auRackFilterSel")?.value || "ALL";
+    const msg = rackSel !== "ALL"
+      ? `Kya aap Rack "${rackSel}" ke gine hue items ki Physical Qty ko Computer Stock mein save karna chahte hain?`
+      : `Kya aap gine hue ${countedCodes.length} items ki Physical Qty ko Computer Stock mein update karna chahte hain?`;
+    if (!confirm(msg)) return;
+
+    let updated = 0;
+    countedCodes.forEach(code => {
+      const item = getLiveInventory().find(i => i && i.code === code);
+      if (item) {
+        item.qty = auditCountsMap[code];
+        updated++;
+      }
+    });
+
+    if (typeof playPosBeep === "function") playPosBeep(1100, 0.1);
+    if (typeof syncToCloud === "function") syncToCloud();
+    if (typeof renderStock === "function") renderStock();
+    renderAuditList();
+    alert(`✅ ${updated} items ka Computer Stock asli Physical Count se update ho gaya!`);
+  };
+
+  window.shareAuditReportWA = function() {
+    const rackSel = document.getElementById("auRackFilterSel")?.value || "ALL";
+    const scoped = getScopedAuditItems();
+    const diffs = [];
+    let sysSum = 0, phySum = 0;
+
+    scoped.forEach(i => {
+      const sys = Math.max(0, Number(i.qty) || 0);
+      const phy = auditCountsMap[i.code] || 0;
+      sysSum += sys;
+      phySum += phy;
+      if (phy !== sys) {
+        const d = phy - sys;
+        diffs.push(`• *${i.code}* (${i.color} ${i.rack ? '| Rack ' + i.rack : ''}): कंप्यूटर ${sys} ➔ मिला *${phy}* (${d > 0 ? '+' + d + ' Extra' : d + ' गायब'})`);
+      }
+    });
+
+    const lines = [
+      `📋 *दीदी की दुकान (SHAKYA COSMETIC) — स्टॉक मिलान रिपोर्ट*`,
+      `🗄️ *रैक:* ${rackSel === "ALL" ? "पूरी दुकान" : "Rack " + rackSel} | 📅 *तारीख:* ${new Date().toLocaleDateString("hi-IN")}`,
+      `📦 *कंप्यूटर स्टॉक:* ${sysSum} Pcs | ✅ *गिना गया:* ${phySum} Pcs`,
+      `━━━━━━━━━━━━━━━━━━`,
+      diffs.length > 0 ? `*अंतर / गायब आइटम (${diffs.length}):*\n` + diffs.join("\n") : `✅ सभी आइटम 100% बराबर मिले!`
+    ];
+    window.open("https://wa.me/?text=" + encodeURIComponent(lines.join("\n")), "_blank");
+  };
+
+  window.addEventListener("DOMContentLoaded", () => {
+    injectRackFieldsDOM();
+    hookBarcodeTagPrintingWithRack();
+    hookStockForRack();
+    /* hookScannerForAudit disabled: unified in Queue Scanner */
+    upgradeExistingTagZoneIfPresent();
+    if (typeof renderStock === "function") renderStock();
+  });
+  setTimeout(() => {
+    injectRackFieldsDOM();
+    hookBarcodeTagPrintingWithRack();
+    hookStockForRack();
+    /* hookScannerForAudit disabled: unified in Queue Scanner */
+    upgradeExistingTagZoneIfPresent();
+    if (typeof renderStock === "function") renderStock();
+  }, 180);
+})();

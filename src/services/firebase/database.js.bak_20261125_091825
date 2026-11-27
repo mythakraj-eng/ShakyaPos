@@ -1,0 +1,252 @@
+// src/services/firebase/database.js — Core Global State & Firebase Realtime DB
+// [JS-01: STATE, BEEP SOUND & FIREBASE HYBRID SYNC START]
+  // =====================================================================
+  const firebaseConfig = {
+    databaseURL: "https://shakyapos-default-rtdb.firebaseio.com/"
+  };
+  if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
+  const dbRef = firebase.database().ref('shakya_pos_data');
+  const connectedRef = firebase.database().ref('.info/connected');
+
+  function normalizeArray(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.filter(Boolean);
+    if (typeof val === 'object') return Object.values(val).filter(Boolean);
+    return [];
+  }
+
+  let inventory = normalizeArray(JSON.parse(localStorage.getItem('sc_inventory'))) || [];
+  if (inventory.length === 0 && !localStorage.getItem('sc_initialized')) {
+    inventory = [
+      { code: 'SC101R', cat: 'Daily Saree', color: 'Red', qty: 4, cost: 190, mrp: 350 },
+      { code: 'SC102P', cat: 'Fancy Saree', color: 'Rani Pink', qty: 3, cost: 420, mrp: 750 },
+      { code: 'PT01R', cat: 'Petticoat', color: 'Red', qty: 10, cost: 65, mrp: 120 }
+    ];
+    localStorage.setItem('sc_initialized', 'true');
+  }
+  let sales = normalizeArray(JSON.parse(localStorage.getItem('sc_sales')));
+  let udhaarLogs = normalizeArray(JSON.parse(localStorage.getItem('sc_udhaar_logs')));
+  let expenses = normalizeArray(JSON.parse(localStorage.getItem('sc_expenses')));
+  let contacts = normalizeArray(JSON.parse(localStorage.getItem('sc_contacts')));
+  let ownerPin = localStorage.getItem('sc_owner_pin') || '1234';
+  let merchantUpiId = localStorage.getItem('sc_merchant_upi') || '8780234760@ybl';
+  let startupLockEnabled = JSON.parse(localStorage.getItem('sc_startup_lock') || 'false');
+  let ownerUnlocked = false;
+  let hasUnsyncedChanges = JSON.parse(localStorage.getItem('sc_unsynced') || 'false');
+  let statsFilterMode = 'TODAY';
+  let custFilterMode = 'ALL';
+  let soundBeepEnabled = JSON.parse(localStorage.getItem('sc_sound_beep') ?? 'true');
+
+  let cart = [];
+  let heldCartData = JSON.parse(localStorage.getItem('sc_held_cart') || 'null');
+  let activeExchangeCredit = 0;
+  let activeExchangeRefInv = '';
+  let html5QrCode = null;
+  let lastSavedSale = null;
+  let pendingWaMode = 'IMAGE';
+  let activeUdhaarMobile = "";
+  let activeUdhaarName = "";
+
+  let suggestCustListCache = [];
+  let villageSuggestCache = [];
+  let customerTableCache = [];
+  let lookupCustCache = null;
+
+  const costCipherMap = { '1':'S', '2':'H', '3':'A', '4':'K', '5':'Y', '6':'B', '7':'C', '8':'D', '9':'E', '0':'Z' };
+  function encodeSecretCost(costVal) {
+    return String(Math.round(Number(costVal) || 0)).split('').map(d => costCipherMap[d] || d).join('');
+  }
+
+  function playPosBeep(freq = 880, duration = 0.07) {
+    if (!soundBeepEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch (e) {}
+  }
+
+  function updateSoundBtnUI() {
+    const btn = document.getElementById('soundToggleBtn');
+    if (!btn) return;
+    btn.innerHTML = soundBeepEnabled ? '🔊 Beep' : '🔇 Mute';
+    btn.style.opacity = soundBeepEnabled ? '1' : '0.65';
+  }
+
+  function toggleSoundBeep() {
+    soundBeepEnabled = !soundBeepEnabled;
+    localStorage.setItem('sc_sound_beep', JSON.stringify(soundBeepEnabled));
+    updateSoundBtnUI();
+    if (soundBeepEnabled) playPosBeep(950, 0.08);
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    applyAppTheme(currentThemeKey);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const dInp = document.getElementById('statsDateInput');
+    const mInp = document.getElementById('statsMonthInput');
+    const upiInp = document.getElementById('merchantUpiInput');
+    if (dInp) dInp.value = todayIso;
+    if (mInp) mInp.value = todayIso.slice(0, 7);
+    if (upiInp) upiInp.value = merchantUpiId;
+    updateSoundBtnUI();
+    updateHoldBtnUI();
+    updateOwnerLockUI();
+    updateStartupLockBtnUI();
+    initPrinterSettingsUI();
+    if (startupLockEnabled) {
+      document.getElementById('startupLockModal').style.display = 'flex';
+      setTimeout(() => document.getElementById('startupPinInput')?.focus(), 100);
+    }
+  });
+
+  function updateStartupLockBtnUI() {
+    const btn = document.getElementById('startupLockToggleBtn');
+    if (!btn) return;
+    btn.innerHTML = startupLockEnabled ? '🔒 Startup Lock: ON' : '🔓 Startup Lock: OFF';
+    btn.style.background = startupLockEnabled ? '#059669' : '#334155';
+  }
+
+  function toggleStartupPinLock() {
+    startupLockEnabled = !startupLockEnabled;
+    localStorage.setItem('sc_startup_lock', JSON.stringify(startupLockEnabled));
+    updateStartupLockBtnUI();
+    showInlineMsg('pinChangeMsg', startupLockEnabled ? '🔒 Startup PIN Lock chalu ho gaya!' : '🔓 Startup PIN Lock band kar diya gaya.', 'success');
+  }
+
+  function verifyStartupPin() {
+    const inp = document.getElementById('startupPinInput').value.trim();
+    if (inp === ownerPin) {
+      document.getElementById('startupLockModal').style.display = 'none';
+      document.getElementById('startupPinErr').style.display = 'none';
+    } else {
+      document.getElementById('startupPinErr').style.display = 'block';
+    }
+  }
+
+  function updateSyncBadge(status) {
+    const badge = document.getElementById('syncStatusBadge');
+    if (!badge) return;
+    if (status === 'ONLINE') {
+      badge.innerText = '🟢 Cloud Live';
+      badge.style.background = '#059669';
+    } else if (status === 'SYNCING') {
+      badge.innerText = '🔄 Syncing...';
+      badge.style.background = '#d97706';
+    } else {
+      badge.innerText = '🟠 Offline (Local)';
+      badge.style.background = '#475569';
+    }
+  }
+
+  connectedRef.on('value', (snap) => {
+    if (snap.val() === true) {
+      updateSyncBadge('ONLINE');
+      if (hasUnsyncedChanges) syncToCloud();
+    } else {
+      updateSyncBadge('OFFLINE');
+    }
+  });
+
+  dbRef.on('value', (snapshot) => {
+    const cloudData = snapshot.val();
+    if (cloudData) {
+      if (cloudData.inventory !== undefined) {
+        inventory = normalizeArray(cloudData.inventory);
+      } else if (cloudData.lastUpdated) {
+        inventory = [];
+      }
+      if (cloudData.sales !== undefined) {
+        sales = normalizeArray(cloudData.sales);
+      } else if (cloudData.lastUpdated) {
+        sales = [];
+      }
+      if (cloudData.udhaarLogs !== undefined) {
+        udhaarLogs = normalizeArray(cloudData.udhaarLogs);
+      } else if (cloudData.lastUpdated) {
+        udhaarLogs = [];
+      }
+      if (cloudData.expenses !== undefined) {
+        expenses = normalizeArray(cloudData.expenses);
+      } else if (cloudData.lastUpdated) {
+        expenses = [];
+      }
+      if (cloudData.contacts !== undefined) {
+        contacts = normalizeArray(cloudData.contacts);
+      } else if (cloudData.lastUpdated) {
+        contacts = [];
+      }
+      if (cloudData.ownerPin) {
+        ownerPin = String(cloudData.ownerPin);
+        localStorage.setItem('sc_owner_pin', ownerPin);
+      }
+      if (cloudData.merchantUpiId) {
+        merchantUpiId = String(cloudData.merchantUpiId);
+        localStorage.setItem('sc_merchant_upi', merchantUpiId);
+        const upiInp = document.getElementById('merchantUpiInput');
+        if (upiInp) upiInp.value = merchantUpiId;
+      }
+
+      localStorage.setItem('sc_inventory', JSON.stringify(inventory));
+      localStorage.setItem('sc_sales', JSON.stringify(sales));
+      localStorage.setItem('sc_udhaar_logs', JSON.stringify(udhaarLogs));
+      localStorage.setItem('sc_expenses', JSON.stringify(expenses));
+      localStorage.setItem('sc_contacts', JSON.stringify(contacts));
+      localStorage.setItem('sc_unsynced', 'false');
+      hasUnsyncedChanges = false;
+      updateSyncBadge('ONLINE');
+
+      renderStock();
+      renderStats();
+      renderCustomerSection();
+    } else if (inventory.length > 0 || sales.length > 0) {
+      syncToCloud();
+    }
+  });
+
+  function syncToCloud() {
+    localStorage.setItem('sc_inventory', JSON.stringify(inventory));
+    localStorage.setItem('sc_sales', JSON.stringify(sales));
+    localStorage.setItem('sc_udhaar_logs', JSON.stringify(udhaarLogs));
+    localStorage.setItem('sc_expenses', JSON.stringify(expenses));
+    localStorage.setItem('sc_contacts', JSON.stringify(contacts));
+    localStorage.setItem('sc_owner_pin', ownerPin);
+    localStorage.setItem('sc_merchant_upi', merchantUpiId);
+    hasUnsyncedChanges = true;
+    localStorage.setItem('sc_unsynced', 'true');
+    updateSyncBadge('SYNCING');
+
+    dbRef.set({
+      inventory,
+      sales,
+      udhaarLogs,
+      expenses,
+      contacts,
+      ownerPin,
+      merchantUpiId,
+      lastUpdated: new Date().toISOString()
+    }).then(() => {
+      hasUnsyncedChanges = false;
+      localStorage.setItem('sc_unsynced', 'false');
+      updateSyncBadge('ONLINE');
+    }).catch(() => {
+      updateSyncBadge('OFFLINE');
+    });
+  }
+
+  window.addEventListener('online', () => {
+    if (hasUnsyncedChanges) syncToCloud();
+  });
+  window.addEventListener('offline', () => updateSyncBadge('OFFLINE'));
+  // [JS-01: STATE, BEEP SOUND & FIREBASE HYBRID SYNC END]

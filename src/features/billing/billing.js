@@ -1,0 +1,374 @@
+// src/features/billing/billing.js — Shaadi / Tyohaar Combo & Lagan Package Builder
+(function() {
+  "use strict";
+  function getLiveInventory() {
+    return window.getLiveInventory ? window.getLiveInventory() : (typeof inventory !== "undefined" ? inventory : []);
+  }
+  function getLiveCart() {
+    return window.getLiveCart ? window.getLiveCart() : (typeof cart !== "undefined" ? cart : []);
+  }
+
+  // ==========================================================================
+  // 3. SHAADI / TYOHAAR COMBO & LAGAN TROUSSEAU BUILDER ("🎁 शादी कॉम्बो")
+  // ==========================================================================
+  let comboRowsState = [];
+
+  function injectComboButtonInBilling() {
+    const fallPicoChip = document.querySelector("#billing h3 span[onclick*='quickAddFallPico']");
+    if (fallPicoChip && fallPicoChip.parentElement && !document.getElementById("openShaadiComboBtn")) {
+      const h3 = fallPicoChip.parentElement;
+      let btnWrap = document.getElementById("shBillingTopChipsWrap");
+      if (!btnWrap) {
+        btnWrap = document.createElement("span");
+        btnWrap.id = "shBillingTopChipsWrap";
+        btnWrap.style.cssText = "display:inline-flex; align-items:center; gap:5px; flex-wrap:wrap;";
+        h3.appendChild(btnWrap);
+        btnWrap.appendChild(fallPicoChip);
+      }
+
+      const comboChip = document.createElement("span");
+      comboChip.id = "openShaadiComboBtn";
+      comboChip.className = "color-chip";
+      comboChip.style.cssText = "padding:3px 9px; font-size:10.5px; font-weight:900; background:linear-gradient(135deg,#7c2d12,#b45309); color:#fde047; border:1.5px solid #f59e0b; cursor:pointer; box-shadow:0 2px 6px rgba(180,83,9,0.25);";
+      comboChip.innerHTML = "🎁 शादी / कॉम्बो पैक";
+      comboChip.onclick = () => openShComboModal();
+      btnWrap.insertBefore(comboChip, fallPicoChip);
+    }
+  }
+
+  function populateComboStockSareeDropdown() {
+    const sel = document.getElementById("cbStockSareeSel");
+    if (!sel) return;
+    const avail = getLiveInventory().filter(i => i && (Number(i.qty) || 0) > 0);
+    sel.innerHTML = `<option value="">-- स्टॉक से साड़ी/आइटम चुनें (${avail.length} In Stock) --</option>` +
+      avail.map(i => `<option value="${i.code}">${i.code} • ${i.cat} (${i.color}) — ₹${i.mrp} [${i.qty} pcs]</option>`).join("");
+  }
+
+  window.openShComboModal = function() {
+    populateComboStockSareeDropdown();
+    if (comboRowsState.length === 0) {
+      loadComboPreset("READY_SAREE");
+    } else {
+      renderComboRows();
+    }
+    document.getElementById("shComboModal").style.display = "flex";
+    if (typeof playPosBeep === "function") playPosBeep(960, 0.05);
+  };
+
+  window.closeShComboModal = function() {
+    document.getElementById("shComboModal").style.display = "none";
+  };
+
+  window.loadComboPreset = function(presetKey) {
+    document.querySelectorAll(".sh-cb-preset-card").forEach(c => c.classList.remove("active"));
+    document.getElementById("cbPreset_" + presetKey)?.classList.add("active");
+
+    const inv = getLiveInventory().filter(i => i && (Number(i.qty) || 0) > 0);
+    const firstFancy = inv.find(i => i.cat === "Fancy Saree") || inv[0];
+    const firstDaily = inv.find(i => i.cat === "Daily Saree") || inv[0];
+    const firstPetti = inv.find(i => i.cat === "Petticoat");
+
+    if (presetKey === "READY_SAREE") {
+      const sMrp = firstDaily ? Number(firstDaily.mrp) : 450;
+      const sCost = firstDaily ? Number(firstDaily.cost) : 300;
+      const pMrp = firstPetti ? Number(firstPetti.mrp) : 120;
+      const pCost = firstPetti ? Number(firstPetti.cost) : 80;
+      comboRowsState = [
+        {
+          stockCode: firstDaily ? firstDaily.code : "",
+          name: firstDaily ? `${firstDaily.cat} (${firstDaily.color})` : "Daily / Gift Saree",
+          qty: 1,
+          mrp: sMrp,
+          cost: sCost
+        },
+        {
+          stockCode: firstPetti ? firstPetti.code : "",
+          name: firstPetti ? `Petticoat (${firstPetti.color})` : "Matching Cotton Petticoat",
+          qty: 1,
+          mrp: pMrp,
+          cost: pCost
+        },
+        {
+          stockCode: "",
+          name: "Fall-Pico & Tanka Ready",
+          qty: 1,
+          mrp: 50,
+          cost: 25
+        }
+      ];
+      renderComboRows(sMrp + pMrp);
+    } else if (presetKey === "LAGAN_SHAGUN") {
+      const fMrp = firstFancy ? Number(firstFancy.mrp) : 950;
+      const fCost = firstFancy ? Number(firstFancy.cost) : 620;
+      const pMrp = firstPetti ? Number(firstPetti.mrp) : 120;
+      const pCost = firstPetti ? Number(firstPetti.cost) : 80;
+      comboRowsState = [
+        {
+          stockCode: firstFancy ? firstFancy.code : "",
+          name: firstFancy ? `Fancy Saree (${firstFancy.color})` : "Dulhan / Lagan Fancy Saree",
+          qty: 1,
+          mrp: fMrp,
+          cost: fCost
+        },
+        {
+          stockCode: firstPetti ? firstPetti.code : "",
+          name: firstPetti ? `Petticoat (${firstPetti.color})` : "Matching Petticoat",
+          qty: 1,
+          mrp: pMrp,
+          cost: pCost
+        },
+        {
+          stockCode: "",
+          name: "Fall-Pico + Fancy Blouse Piece",
+          qty: 1,
+          mrp: 130,
+          cost: 75
+        },
+        {
+          stockCode: "",
+          name: "Suhag Chudi Box & Shagun Sindoor/Bindi",
+          qty: 1,
+          mrp: 180,
+          cost: 110
+        }
+      ];
+      const sum = fMrp + pMrp + 130 + 180;
+      renderComboRows(Math.max(0, sum - 130));
+    } else if (presetKey === "LEN_DEN_5") {
+      const dMrp = firstDaily ? Number(firstDaily.mrp) : 350;
+      const dCost = firstDaily ? Number(firstDaily.cost) : 230;
+      comboRowsState = [
+        {
+          stockCode: "",
+          name: "Len-Den Gift Saree Set (5 Sarees Bundle)",
+          qty: 5,
+          mrp: dMrp,
+          cost: dCost
+        }
+      ];
+      const sum = dMrp * 5;
+      renderComboRows(Math.max(0, sum - 150));
+    } else if (presetKey === "BRIDAL_COS") {
+      comboRowsState = [
+        { stockCode: "", name: "Dulhan Special Chudi / Bangle Set", qty: 1, mrp: 220, cost: 135 },
+        { stockCode: "", name: "Bridal Makeup (Lipstick, Sindoor, Bindi, Kajal)", qty: 1, mrp: 250, cost: 150 },
+        { stockCode: "", name: "Golden Facial Glow & Mehndi Shagun Kit", qty: 1, mrp: 180, cost: 110 }
+      ];
+      renderComboRows(580);
+    }
+  };
+
+  window.insertSelectedStockIntoCombo = function() {
+    const sel = document.getElementById("cbStockSareeSel");
+    const code = sel?.value || "";
+    if (!code) {
+      alert("⚠️ Pehle dropdown se koi Stock Saree/Item chunein!");
+      return;
+    }
+    const item = getLiveInventory().find(i => i && i.code === code);
+    if (!item) return;
+
+    if (comboRowsState.length > 0 && item.cat.includes("Saree") && comboRowsState[0].name.toLowerCase().includes("saree")) {
+      comboRowsState[0] = {
+        stockCode: item.code,
+        name: `${item.cat} (${item.color})`,
+        qty: 1,
+        mrp: Number(item.mrp) || 0,
+        cost: Number(item.cost) || 0
+      };
+    } else {
+      comboRowsState.push({
+        stockCode: item.code,
+        name: `${item.cat} (${item.color})`,
+        qty: 1,
+        mrp: Number(item.mrp) || 0,
+        cost: Number(item.cost) || 0
+      });
+    }
+    sel.value = "";
+    renderComboRows();
+    if (typeof playPosBeep === "function") playPosBeep(1020, 0.05);
+  };
+
+  window.addBlankComboRow = function() {
+    comboRowsState.push({
+      stockCode: "",
+      name: "Shagun / Extra Item",
+      qty: 1,
+      mrp: 100,
+      cost: 65
+    });
+    renderComboRows();
+  };
+
+  window.removeComboRow = function(idx) {
+    comboRowsState.splice(idx, 1);
+    renderComboRows();
+  };
+
+  window.onComboRowFieldEdit = function(idx, field, val) {
+    const row = comboRowsState[idx];
+    if (!row) return;
+    if (field === "name") row.name = val;
+    else if (field === "qty") row.qty = Math.max(1, parseInt(val, 10) || 1);
+    else if (field === "mrp") {
+      row.mrp = Math.max(0, parseFloat(val) || 0);
+      if (!row.stockCode) row.cost = Math.round(row.mrp * 0.66);
+    }
+    recalcComboTotals(true);
+  };
+
+  function getComboTotalMrp() {
+    return comboRowsState.reduce((s, r) => s + ((Number(r.mrp) || 0) * (Number(r.qty) || 1)), 0);
+  }
+
+  function recalcComboTotals(autoSuggestDiscount) {
+    const totalMrp = getComboTotalMrp();
+    document.getElementById("cbTotalMrpTxt").textContent = "₹" + totalMrp;
+
+    const pkgInp = document.getElementById("cbPackagePriceInp");
+    if (autoSuggestDiscount && pkgInp) {
+      const autoDisc = totalMrp >= 1000 ? 100 : (totalMrp >= 500 ? 50 : 0);
+      pkgInp.value = Math.max(0, totalMrp - autoDisc);
+    }
+
+    const pkgPrice = Math.max(0, parseFloat(pkgInp?.value) || 0);
+    const saved = Math.max(0, totalMrp - pkgPrice);
+    const savEl = document.getElementById("cbSavingsBadge");
+    if (savEl) {
+      savEl.innerHTML = saved > 0
+        ? `🎉 ग्राहक की कॉम्बो बचत: <b>₹${saved} की सीधी छूट!</b>`
+        : `✨ कस्टम पैकेज रेट`;
+    }
+  }
+
+  window.onComboPackagePriceEdit = function() {
+    recalcComboTotals(false);
+  };
+
+  function renderComboRows(overridePackagePrice) {
+    const box = document.getElementById("cbItemsContainer");
+    if (!box) return;
+
+    box.innerHTML = comboRowsState.map((r, idx) => `
+      <div class="sh-cb-item-row">
+        <div style="flex:1.8;">
+          <div style="display:flex; align-items:center; gap:4px; margin-bottom:2px;">
+            <span style="font-size:10px; font-weight:900; color:#b45309;">#${idx + 1}</span>
+            ${r.stockCode ? `<span style="font-size:9.5px; font-weight:900; background:#fef3c7; color:#92400e; border:1px solid #f59e0b; padding:0 5px; border-radius:4px;">📦 Stock: ${r.stockCode}</span>` : `<span style="font-size:9px; color:#64748b; font-weight:700;">⚡ Combo Item</span>`}
+          </div>
+          <input type="text" value="${r.name}" oninput="onComboRowFieldEdit(${idx}, 'name', this.value)" placeholder="Item Name">
+        </div>
+        <div style="width:52px;">
+          <small style="font-size:9px; font-weight:800; color:#475569; display:block;">Qty</small>
+          <input type="number" min="1" value="${r.qty}" oninput="onComboRowFieldEdit(${idx}, 'qty', this.value)">
+        </div>
+        <div style="width:78px;">
+          <small style="font-size:9px; font-weight:800; color:#475569; display:block;">MRP (₹)</small>
+          <input type="number" value="${r.mrp}" oninput="onComboRowFieldEdit(${idx}, 'mrp', this.value)">
+        </div>
+        <button type="button" class="small" style="margin:12px 0 0 0; padding:4px 7px; background:#fee2e2; color:#dc2626; font-weight:900; width:auto;" onclick="removeComboRow(${idx})">✕</button>
+      </div>
+    `).join("");
+
+    const totalMrp = getComboTotalMrp();
+    document.getElementById("cbTotalMrpTxt").textContent = "₹" + totalMrp;
+    const pkgInp = document.getElementById("cbPackagePriceInp");
+    if (pkgInp) {
+      pkgInp.value = overridePackagePrice !== undefined ? overridePackagePrice : Math.max(0, totalMrp - 50);
+    }
+    recalcComboTotals(false);
+  }
+
+  window.commitComboToBillCart = function() {
+    if (comboRowsState.length === 0) {
+      alert("⚠️ कॉम्बो में कम से कम 1 आइटम जोड़ें!");
+      return;
+    }
+
+    const totalMrp = getComboTotalMrp();
+    const pkgPrice = Math.max(0, parseFloat(document.getElementById("cbPackagePriceInp")?.value) || totalMrp);
+    const ratio = totalMrp > 0 ? (pkgPrice / totalMrp) : 1;
+
+    const cList = getLiveCart();
+    let remainingPkg = pkgPrice;
+
+    comboRowsState.forEach((r, idx) => {
+      const qty = Math.max(1, Number(r.qty) || 1);
+      const rawUnitMrp = Number(r.mrp) || 0;
+      let unitComboRate = Math.round(rawUnitMrp * ratio);
+
+      if (idx === comboRowsState.length - 1 && qty === 1) {
+        unitComboRate = Math.max(0, remainingPkg);
+      } else {
+        remainingPkg -= (unitComboRate * qty);
+      }
+
+      if (r.stockCode) {
+        const stItem = getLiveInventory().find(i => i && i.code === r.stockCode);
+        if (stItem) {
+          cList.push({
+            code: stItem.code,
+            cat: `🎁 ${stItem.cat}`,
+            color: `${stItem.color} (Combo)`,
+            qty: qty,
+            cost: Number(stItem.cost) || Math.round(unitComboRate * 0.68),
+            mrp: unitComboRate,
+            isLoose: false
+          });
+          return;
+        }
+      }
+
+      const cCode = "CB" + Math.floor(10 + Math.random() * 89);
+      cList.push({
+        code: cCode,
+        cat: `🎁 ${r.name}`,
+        color: "Combo Pack",
+        qty: qty,
+        cost: Number(r.cost) || Math.round(unitComboRate * 0.66),
+        mrp: unitComboRate,
+        isLoose: true
+      });
+    });
+
+    closeShComboModal();
+    try {
+      const liveInv = getLiveInventory();
+      const seenStockIndices = {};
+      for (let i = 0; i < cList.length; i++) {
+        const c = cList[i];
+        if (!c || c.isComboDiscount) continue;
+        const st = liveInv.find(x => x && x.code === c.code);
+        if (st) {
+          const maxQ = Number(st.qty) || 1;
+          if (seenStockIndices[c.code] !== undefined) {
+            const fIdx = seenStockIndices[c.code];
+            const q1 = Number(cList[fIdx].qty) || 1;
+            const q2 = Number(c.qty) || 1;
+            cList[fIdx].qty = Math.min(maxQ, q1 + q2);
+            cList.splice(i, 1);
+            i--;
+          } else {
+            c.qty = Math.min(maxQ, Number(c.qty) || 1);
+            seenStockIndices[c.code] = i;
+          }
+        }
+      }
+    } catch (e) {}
+    if (typeof playPosBeep === "function") playPosBeep(1120, 0.08);
+    if (typeof renderCart === "function") renderCart();
+
+    const saved = Math.max(0, totalMrp - pkgPrice);
+    if (typeof showInlineMsg === "function") {
+      showInlineMsg(
+        "billMsg",
+        `🎁 शादी/त्योहार कॉम्बो (₹${pkgPrice}${saved > 0 ? ' • बचत ₹' + saved : ''}) बिल में जुड़ गया!`,
+        "success"
+      );
+    }
+  };
+
+  window.addEventListener("DOMContentLoaded", () => { injectComboButtonInBilling(); });
+  setTimeout(() => { injectComboButtonInBilling(); }, 250);
+})();

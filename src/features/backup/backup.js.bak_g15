@@ -1,0 +1,126 @@
+// src/features/backup/backup.js — Canonical CSV & v4 Full JSON Backup/Restore
+// [JS-14: EXCEL CSV & CLOUD/LOCAL JSON BACKUP START]
+  function exportSalesCSV() {
+    if (sales.length === 0) {
+      showInlineMsg('backupMsg', '⚠️ Abhi koi sale record nahi hai!', 'error');
+      return;
+    }
+    let csv = 'Invoice,Date,Customer,Village,Mobile,PaymentMode,StickerMRP,ActualSale_ACC,ExchangeCredit,Paid,Due_Udhaar,Cost,NetProfit,Status,Items\n';
+    sales.forEach(s => {
+      const itemsStr = (s.items || []).map(i => `${String(i.code||'').replace(/[=+@\\-]/g,'')}(${i.qty}pcs,Rs.${i.realSale}${i.returned ? ',RETURNED' : ''})`).join(' | ');
+      const paidVal = s.paid !== undefined ? s.paid : s.acc;
+      csv += `${s.invId},${s.date},"${s.cust}","${s.village || ''}",${s.mobile || ''},${s.mode},${s.totalMrp},${s.acc},${s.exchangeCredit || 0},${paidVal},${s.due || 0},${s.totalCost},${s.profit},${s.exchanged ? 'EXCHANGED' : 'SOLD'},"${itemsStr}"\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const todayIso = window.getLocalIsoDate ? window.getLocalIsoDate() : new Date().toISOString().slice(0, 10);
+    a.download = 'Shakya_Sales_' + todayIso + '.csv';
+    a.click();
+    showInlineMsg('backupMsg', '✅ Sales Excel (.CSV) download ho gayi!', 'success');
+  }
+
+  async function downloadBackupJSON() {
+    if (typeof window.reattachIdbPhotosToMandiBills === 'function') {
+      try { await window.reattachIdbPhotosToMandiBills(); } catch (e) {}
+    }
+    const backup = {
+      app: 'ShakyaCosmeticPOS',
+      version: 4,
+      exportedAt: new Date().toISOString(),
+      inventory: typeof inventory !== 'undefined' ? inventory : [],
+      sales: typeof sales !== 'undefined' ? sales : [],
+      udhaarLogs: typeof udhaarLogs !== 'undefined' ? udhaarLogs : [],
+      expenses: typeof expenses !== 'undefined' ? expenses : [],
+      contacts: typeof contacts !== 'undefined' ? contacts : [],
+      mandiBills: Array.isArray(window.mandiBills) ? window.mandiBills : [],
+      mandiPayments: Array.isArray(window.mandiPayments) ? window.mandiPayments : [],
+      ownerPin: typeof ownerPin !== 'undefined' ? ownerPin : '1234',
+      merchantUpiId: typeof merchantUpiId !== 'undefined' ? merchantUpiId : '',
+      printerPrefs: typeof printerPrefs !== 'undefined' ? printerPrefs : null,
+      currentThemeKey: typeof currentThemeKey !== 'undefined' ? currentThemeKey : 'INDIGO'
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const todayIso = window.getLocalIsoDate ? window.getLocalIsoDate() : new Date().toISOString().slice(0, 10);
+    a.download = 'Shakya_POS_Backup_' + todayIso + '.json';
+    a.click();
+    showInlineMsg('backupMsg', '✅ Full Backup (.JSON v4) download ho gaya!', 'success');
+  }
+  window.downloadBackupJSON = downloadBackupJSON;
+
+  function restoreBackupJSON(event) {
+    if (!ownerUnlocked &&
+        typeof window.requireOwnerPermission === 'function') {
+      window.requireOwnerPermission(
+        'Restore JSON Database Backup',
+        () => restoreBackupJSON(event)
+      );
+      return;
+    }
+    const file = event && event.target && event.target.files ? event.target.files[0] : null;
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!data || (!Array.isArray(data.inventory) && !Array.isArray(data.sales))) {
+          showInlineMsg('backupMsg', '❌ Invalid backup file!', 'error');
+          return;
+        }
+        if (Array.isArray(data.inventory) && typeof inventory !== 'undefined') {
+          inventory.length = 0;
+          data.inventory.filter(Boolean).forEach(x => { x.code = cleanCode(x.code); inventory.push(x); });
+        }
+        if (Array.isArray(data.sales) && typeof sales !== 'undefined') {
+          sales.length = 0;
+          data.sales.filter(Boolean).forEach(x => sales.push(x));
+        }
+        if (Array.isArray(data.udhaarLogs) && typeof udhaarLogs !== 'undefined') {
+          udhaarLogs.length = 0;
+          data.udhaarLogs.filter(Boolean).forEach(x => udhaarLogs.push(x));
+        }
+        if (Array.isArray(data.expenses) && typeof expenses !== 'undefined') {
+          expenses.length = 0;
+          data.expenses.filter(Boolean).forEach(x => expenses.push(x));
+        }
+        if (Array.isArray(data.contacts) && typeof contacts !== 'undefined') {
+          contacts.length = 0;
+          data.contacts.filter(Boolean).forEach(x => contacts.push(x));
+        }
+        if (Array.isArray(data.mandiBills)) {
+          window.mandiBills = data.mandiBills.filter(Boolean);
+          localStorage.setItem('sc_mandi_bills', JSON.stringify(window.mandiBills));
+        }
+        if (Array.isArray(data.mandiPayments)) {
+          window.mandiPayments = data.mandiPayments.filter(Boolean);
+          localStorage.setItem('sc_mandi_payments', JSON.stringify(window.mandiPayments));
+        }
+        if (data.ownerPin) ownerPin = String(data.ownerPin);
+        if (data.merchantUpiId) merchantUpiId = String(data.merchantUpiId);
+        if (data.printerPrefs && typeof printerPrefs !== 'undefined') {
+          printerPrefs = data.printerPrefs;
+          localStorage.setItem('sc_printer_prefs', JSON.stringify(printerPrefs));
+          if (typeof initPrinterSettingsUI === 'function') initPrinterSettingsUI();
+        }
+        if (data.currentThemeKey && typeof applyAppTheme === 'function') {
+          applyAppTheme(data.currentThemeKey);
+        }
+        if (typeof syncToCloud === 'function') syncToCloud();
+        if (typeof renderStock === 'function') renderStock();
+        if (typeof renderStats === 'function') renderStats();
+        if (typeof renderCustomerSection === 'function') renderCustomerSection();
+        showInlineMsg('backupMsg', '✅ Full Backup (Stock + Bills + Udhaar + Mandi Khata) restore ho gaya!', 'success');
+      } catch (err) {
+        showInlineMsg('backupMsg', '❌ File padhne me error aaya.', 'error');
+      }
+    };
+    reader.readAsText(file);
+  }
+  window.restoreBackupJSON = restoreBackupJSON;
+
+  renderStock();
+  renderStats();
+  renderCustomerSection();
+// [JS-14: EXCEL CSV & CLOUD/LOCAL JSON BACKUP END]

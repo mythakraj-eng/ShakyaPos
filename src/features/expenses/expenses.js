@@ -1,0 +1,40 @@
+// src/features/expenses/expenses.js — Daily Shop Kharcha (Expenses)
+// [JS-13: ROZANA DUKAAN KHARCHA & INSIGHTS 7-DAY CHART START]
+  // =====================================================================
+  function addExpense() {
+    const note = document.getElementById('expNote').value.trim();
+    const amt = parseFloat(document.getElementById('expAmt').value) || 0;
+    if (!note || amt <= 0) return;
+
+    const now = new Date();
+    expenses.unshift({
+      id: 'EXP' + Date.now().toString().slice(-5),
+      date: now.toLocaleDateString('hi-IN'),
+      isoDate: (window.getLocalIsoDate ? window.getLocalIsoDate(now) : now.toISOString().slice(0, 10)),
+      note,
+      amount: amt
+    });
+
+    document.getElementById('expNote').value = '';
+    document.getElementById('expAmt').value = '';
+    syncToCloud();
+    renderStats();
+  }
+
+  function deleteExpense(id) {
+    if (!ownerUnlocked &&
+        typeof window.requireOwnerPermission === 'function') {
+      window.requireOwnerPermission(
+        'Delete Shop Expense', () => deleteExpense(id)
+      );
+      return;
+    }
+    if (window.emitPosEvent) {
+      window.emitPosEvent('expense:deleted', { id });
+    } else if (typeof markTombstone === 'function') {
+      markTombstone('expenses', id);
+    }
+    expenses = expenses.filter(e => e.id !== id);
+    syncToCloud();
+    renderStats();
+  }

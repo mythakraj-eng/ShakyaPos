@@ -1,0 +1,55 @@
+// src/features/printing/tag-printing.js — Barcode/QR Saree Tag Printing
+// [JS-08: PRINTED TAGS WITH SECRET COST CIPHER START]
+  // =====================================================================
+  function printSareeTag(code) {
+    const item = inventory.find(i => i.code === code);
+    if (!item) return;
+    document.querySelectorAll('.tab')[0].click();
+    const zone = document.getElementById('printZone');
+    document.getElementById('printCard').style.display = 'block';
+    const secretCostStr = encodeSecretCost(item.cost);
+    zone.innerHTML = `
+      <p class="receipt-didi">✨ दीदी की दुकान ✨</p>
+      <h2>SHAKYA COSMETIC</h2>
+      <p>${item.cat} - ${item.color} | Code: ${secretCostStr}</p>
+      <div class="receipt-total">MRP: ₹${item.mrp}</div>
+      <div class="barcode-box"><svg id="tagBarcode"></svg></div>
+    `;
+    JsBarcode("#tagBarcode", item.code, { format: "CODE128", width: 1.3, height: 30, displayValue: true, fontSize: 11, margin: 2 });
+  }
+
+  function printAllStockTags() {
+    const listToPrint = getFilteredInventory();
+    if (listToPrint.length === 0) {
+      showInlineMsg('stockMsg', '⚠️ Print karne ke liye koi item nahi hai!', 'error');
+      return;
+    }
+    document.querySelectorAll('.tab')[0].click();
+    const zone = document.getElementById('printZone');
+    document.getElementById('printCard').style.display = 'block';
+
+    let tagsHTML = `<h3 style="margin:0 0 8px 0; color:#000; font-size:12px;">दीदी की दुकान • SHAKYA COSMETIC (${listToPrint.length})</h3><div class="batch-tag-container">`;
+    listToPrint.forEach((item, idx) => {
+      const secretCostStr = encodeSecretCost(item.cost);
+      tagsHTML += `
+        <div class="single-tag">
+          <h4>दीदी की दुकान</h4>
+          <p style="font-weight:bold;">SHAKYA COSMETIC</p>
+          <p>${item.cat} - ${item.color} | ${secretCostStr}</p>
+          <div class="tag-mrp">MRP: ₹${item.mrp}</div>
+          <div class="barcode-box"><svg id="batchTag_${idx}"></svg></div>
+        </div>
+      `;
+    });
+    tagsHTML += `</div>`;
+    zone.innerHTML = tagsHTML;
+
+    listToPrint.forEach((item, idx) => {
+      try {
+        JsBarcode("#batchTag_" + idx, item.code, { format: "CODE128", width: 1.2, height: 26, displayValue: true, fontSize: 10, margin: 2 });
+      } catch (e) {}
+    });
+
+    window.print();
+  }
+  // [JS-08: PRINTED TAGS WITH SECRET COST CIPHER END]

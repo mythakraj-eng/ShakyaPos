@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+# Shakya POS - Enable Full Chrome + localhost:8080 WebAPK PWA Install
+# 1. Patches run_shakya_pos.py to bind dual-stack (localhost + 127.0.0.1).
+# 2. Opens http://localhost:8080/index.html directly in full Chrome app.
+# 3. Serves manifest.json with application/manifest+json MIME type.
+# 4. Protects your new icon-192.png, icon-512.png, and manifest.json.
+
+import os
+import re
+import json
+import socket
+import shutil
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+if not os.path.exists(os.path.join(ROOT, "index.html")):
+    for cand in (os.getcwd(), "/storage/emulated/0/Shakya_Pos"):
+        if os.path.exists(os.path.join(cand, "index.html")):
+            ROOT = cand
+            break
+
+
+def patch_run_shakya_pos(root_dir):
+    rsp = os.path.join(root_dir, "run_shakya_pos.py")
+    if not os.path.exists(rsp):
+        print("[ERR] run_shakya_pos.py not found in", root_dir)
+        return False
+
+    shutil.copy2(rsp, rsp + ".bak_localhost")
+    with open(rsp, "r", encoding="utf-8") as f:
+        code = f.read()
+
+    # 1. Protect manifest.json from overwrite
+    old_m = '    with open("manifest.json", "w", encoding="utf-8") as f:'
+    chk_m = 'if not os.path.isfile("manifest.json"):'
+    if old_m in code and chk_m not in code:
+        code = code.replace(
+            old_m,
+            "    " + chk_m + "\n        with open("
+            '"manifest.json", "w", encoding="utf-8") as f:',
+            1,
+        )
+        code = code.replace(
+            '        f.write(MANIFEST_TEMPLATE.strip() + "\\n")',
+            '            f.write(MANIFEST_TEMPLATE.strip() + "\\n")',
+            1,
+        )
+
+    # 2. Switch URL from 127.0.0.1 to localhost for Chrome WebAPK install
+    code = code.replace(
+        'url = f"http://127.0.0.1:{LOCKED_PORT}/index.html"',
+        'url = f"http://localhost:{LOCKED_PORT}/index.html"',
+    )
+
+    # 3. Serve manifest.json as application/manifest+json
+    if "application/manifest+json" not in code:
+        code = code.replace(
+            'class ImmortalPOSHandler(SimpleHTTPRequestHandler):\n',
+            "class ImmortalPOSHandler(SimpleHTTPRequestHandler):\n"
+            "    extensions_map = dict(\n"
+            "        SimpleHTTPRequestHandler.extensions_map,\n"
+            '        **{".json": "application/manifest+json"},\n'
+            "    )\n",
+            1,
+        )
+
+    # 4. Bind dual-stack IPv6+IPv4 (:: or 0.0.0.0) so localhost works
+    old_srv = (
+        '    def server_bind(self):\n'
+        '        self.socket.setsockopt('
+        'socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)'
+    )
+    if old_srv in code and "IPV6_V6ONLY" not in code:
+        code = code.replace(
+            "class ImmortalPOSServer(ThreadingHTTPServer):\n",
+            "class ImmortalPOSServer(ThreadingHTTPServer):\n"
+            "    address_family = socket.AF_INET6\n",
+            1,
+        )
+        code = code.replace(
+            old_srv,
+            "    def server_bind(self):\n"
+            "        try:\n"
+            "            self.socket.setsockopt(\n"
+            "                socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0\n"
+            "            )\n"
+            "        except Exception:\n"
+            "            pass\n"
+            "        self.socket.setsockopt(\n"
+            "            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1\n"
+            "        )",
+            1,
+        )
+        code = code.replace(
+            'ImmortalPOSServer(("127.0.0.1", LOCKED_PORT), '
+            'ImmortalPOSHandler)',
+            'ImmortalPOSServer(("::", LOCKED_PORT), ImmortalPOSHandler)',
+        )
+
+    # 5. Prefer full Chrome app over Custom Tab
+    old_launch = "def launch_android_browser(url):"
+    if old_launch in code and "com.android.chrome" not in code:
+        new_launch = "\n".join([
+            "def launch_android_browser(url):",
+            "    time.sleep(0.7)",
+            '    print("\\nLaunching Shakya POS in full Chrome:", url)',
+            "    try:",
+            "        cmd = (",
+            "            'am start -n com.android.chrome/'",
+            "            'com.google.android.apps.chrome.Main '",
+            "            '-a android.intent.action.VIEW '",
+            '            f\'-d "{url}" >/dev/null 2>&1\'',
+            "        )",
+            "        if os.system(cmd) == 0:",
+            "            return",
+            "    except Exception:",
+            "        pass",
+        ])
+        code = code.replace(
+            "def launch_android_browser(url):\n"
+            "    time.sleep(0.7)\n"
+            '    print(f"\\n🚀 Launching Shakya POS in Chrome: {url}")',
+            new_launch,
+            1,
+        )
+
+    with open(rsp, "w", encoding="utf-8") as f:
+        f.write(code)
+    print("[OK] Patched run_shakya_pos.py for localhost + full Chrome")
+    return True
+
+
+def verify_manifest(root_dir):
+    mp = os.path.join(root_dir, "manifest.json")
+    if not os.path.exists(mp):
+        print("[WARN] manifest.json missing - run patch_shakya_app_icon.py")
+        return
+    with open(mp, "r", encoding="utf-8") as f:
+        m = json.load(f)
+    m["id"] = "./index.html"
+    m["start_url"] = "./index.html"
+    m["scope"] = "./"
+    m["display"] = "standalone"
+    with open(mp, "w", encoding="utf-8") as f:
+        json.dump(m, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print("[OK] Verified manifest.json fields (id, start_url, scope)")
+
+
+def main():
+    print("=== Shakya POS Localhost PWA Fix ===")
+    print("Target:", ROOT)
+    ok = patch_run_shakya_pos(ROOT)
+    verify_manifest(ROOT)
+    if ok:
+        print("\n[DONE] Now run run_shakya_pos.py in Pydroid 3!")
+        print("Then tap ⋮ -> Add to Home screen -> Install in Chrome.")
+
+
+if __name__ == "__main__":
+    main()

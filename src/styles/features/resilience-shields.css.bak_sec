@@ -1,0 +1,176 @@
+/* src/styles/features/resilience-shields.css — Production Resilience & Hardware Gun UI */
+#shQuotaVaultBox, #shCloudSyncMonitorBox, #shAtomicWalMonitorBox {
+    background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%);
+    color: #f8fafc;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border: 1.5px solid #334155;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.22);
+  }
+  .sh-qv-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .sh-qv-title {
+    font-size: 13px;
+    font-weight: 900;
+    color: #fbbf24;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sh-qv-badge {
+    font-size: 10.5px;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.18);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.4);
+  }
+  .sh-qv-track {
+    width: 100%;
+    height: 10px;
+    background: #020617;
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid #475569;
+    margin-bottom: 8px;
+  }
+  .sh-qv-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.35s ease;
+  }
+  .sh-qv-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .sh-qv-chip {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .sh-qv-chip b {
+    color: #fde68a;
+    font-weight: 800;
+  }
+  .sh-qv-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .sh-qv-btn {
+    flex: 1;
+    min-width: 135px;
+    margin: 0 !important;
+    padding: 8px 10px !important;
+    font-size: 11.5px !important;
+    font-weight: 800 !important;
+    border-radius: 8px !important;
+    cursor: pointer;
+    border: none;
+  }
+  .sh-qv-btn-opt {
+    background: linear-gradient(135deg, #059669, #10b981) !important;
+    color: #ffffff !important;
+  }
+  .sh-qv-btn-arc {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+    border: 1px solid #475569 !important;
+  }
+  .sh-qv-btn-sync {
+    background: linear-gradient(135deg, #2563eb, #3b82f6) !important;
+    color: #ffffff !important;
+  }
+
+  /* Hardware Barcode Gun Status Bar & Polythene Anti-Glare + Battery Saver */
+  #shHardwareGunBar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 5px 10px;
+    border-radius: 8px;
+    margin-bottom: 7px;
+    font-size: 10.5px;
+    border: 1px solid #334155;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  #shHardwareGunBar.gun-flash {
+    background: #064e3b;
+    border-color: #10b981;
+    color: #ecfdf5;
+  }
+  .sh-gun-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 800;
+    color: #38bdf8;
+  }
+  #shHardwareGunBar.gun-flash .sh-gun-pill {
+    color: #34d399;
+  }
+  #reader.sh-anti-glare-on video {
+    filter: contrast(1.62) brightness(0.91) saturate(0) !important;
+  }
+  #shCamSleepOverlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    background: rgba(15, 23, 42, 0.94);
+    border-radius: 12px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    text-align: center;
+    color: #f8fafc;
+    border: 2px dashed #38bdf8;
+    cursor: pointer;
+  }
+  #shCamBatteryPill {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.16);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.35);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Crash Recovery Toast Banner in Billing */
+  #shCartRecoveryBanner {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+    color: #ecfdf5;
+    padding: 8px 11px;
+    border-radius: 10px;
+    border: 1.5px solid #34d399;
+    margin-bottom: 8px;
+    font-size: 11.5px;
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.28);
+  }

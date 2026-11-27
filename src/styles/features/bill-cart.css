@@ -1,0 +1,172 @@
+/* Extracted from <!-- === SHAKYA COSMETIC: HIGH-CONTRAST POS BILL CART UI === --> */
+#shCartContainer {
+    margin-top: 12px;
+    margin-bottom: 12px;
+    border-radius: 14px;
+    border: 2px dashed #cbd5e1;
+    background: #f8fafc;
+    overflow: hidden;
+    transition: all 0.2s ease;
+  }
+
+  #shCartContainer.has-items {
+    border: 2.5px solid #059669;
+    background: #ecfdf5;
+    box-shadow: 0 8px 22px rgba(5, 150, 105, 0.16);
+  }
+
+  #shCartHeaderBar {
+    display: none;
+    background: linear-gradient(135deg, #064e3b 0%, #059669 100%);
+    color: #ffffff;
+    padding: 8px 11px;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 2px solid #34d399;
+  }
+  #shCartContainer.has-items #shCartHeaderBar {
+    display: flex;
+  }
+
+  .sh-cart-title {
+    font-size: 12.5px;
+    font-weight: 900;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    letter-spacing: 0.2px;
+  }
+  .sh-cart-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #fde047;
+    box-shadow: 0 0 8px #fde047;
+    display: inline-block;
+  }
+  .sh-cart-header-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sh-cart-count-pill {
+    background: #fde047;
+    color: #064e3b;
+    font-size: 11px;
+    font-weight: 900;
+    padding: 2.5px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .sh-cart-clear-btn {
+    width: auto !important;
+    margin: 0 !important;
+    padding: 3px 7px !important;
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    border-radius: 6px !important;
+    background: rgba(0, 0, 0, 0.28) !important;
+    color: #fecaca !important;
+    border: 1px solid rgba(254, 202, 202, 0.35) !important;
+    box-shadow: none !important;
+  }
+
+  #shCartEmptyState {
+    padding: 12px 10px;
+    text-align: center;
+    color: #64748b;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+  #shCartContainer.has-items #shCartEmptyState {
+    display: none !important;
+  }
+
+  #shCartContainer:not(.has-items) #cartTable {
+    display: none !important;
+  }
+  #shCartContainer.has-items #cartTable {
+    display: table !important;
+    width: 100% !important;
+    margin: 0 !important;
+    border-collapse: separate !important;
+    border-spacing: 0 6px !important;
+    padding: 6px 8px 8px 8px !important;
+  }
+
+  #shCartContainer #cartTable thead {
+    display: none !important;
+  }
+
+  #shCartContainer #cartBody tr {
+    background: #ffffff !important;
+    box-shadow: 0 2px 6px rgba(6, 78, 59, 0.08) !important;
+    border-radius: 10px !important;
+    transition: all 0.25s ease;
+  }
+  #shCartContainer #cartBody td {
+    border-top: 1.5px solid #a7f3d0 !important;
+    border-bottom: 1.5px solid #a7f3d0 !important;
+    padding: 8px 7px !important;
+    vertical-align: middle !important;
+    background: transparent !important;
+  }
+  #shCartContainer #cartBody td:first-child {
+    border-left: 4.5px solid #059669 !important;
+    border-radius: 10px 0 0 10px !important;
+    padding-left: 9px !important;
+    width: 26% !important;
+  }
+  #shCartContainer #cartBody td:nth-child(2) {
+    width: 44% !important;
+  }
+  #shCartContainer #cartBody td:nth-child(3) {
+    width: 18% !important;
+    font-size: 14px !important;
+    font-weight: 900 !important;
+    color: #065f46 !important;
+    text-align: right !important;
+    white-space: nowrap !important;
+  }
+  #shCartContainer #cartBody td:last-child {
+    border-right: 1.5px solid #a7f3d0 !important;
+    border-radius: 0 10px 10px 0 !important;
+    padding-right: 8px !important;
+    width: 12% !important;
+  }
+
+  @keyframes shNewItemFlash {
+    0%   { background-color: #fef08a; transform: scale(1.015); }
+    60%  { background-color: #fef9c3; transform: scale(1); }
+    100% { background-color: #ffffff; transform: scale(1); }
+  }
+  #shCartContainer #cartBody tr.sh-just-added {
+    animation: shNewItemFlash 1.4s ease-out;
+  }
+  #shCartContainer #cartBody tr.sh-just-added td:first-child {
+    border-left-color: #d97706 !important;
+  }
+
+  .sh-item-index-badge {
+    display: inline-block;
+    background: #064e3b;
+    color: #fde047;
+    font-size: 9.5px;
+    font-weight: 900;
+    padding: 1.5px 6px;
+    border-radius: 5px;
+    margin-bottom: 3px;
+  }
+  .sh-new-tag-badge {
+    display: inline-block;
+    background: #f59e0b;
+    color: #111827;
+    font-size: 8.5px;
+    font-weight: 900;
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 3px;
+    vertical-align: middle;
+  }

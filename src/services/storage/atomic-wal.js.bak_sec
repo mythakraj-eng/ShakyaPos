@@ -1,0 +1,397 @@
+// src/services/storage/atomic-wal.js — Atomic Write-Ahead Transaction Journal & Live Cart Recovery
+// =========================================================================
+  // 0A. BUG #7: ATOMIC WRITE-AHEAD TRANSACTION JOURNAL (WAL), DOUBLE-TAP
+  //             DUPLICATE BILL LOCK & LIVE ACTIVE-CART CRASH RECOVERY
+  // =========================================================================
+  const WAL_KEY = "sc_wal_journal_v1";
+  const CART_DRAFT_KEY = "sc_live_cart_draft_v1";
+  const WAL_HISTORY_KEY = "sc_wal_stats_v1";
+
+  let txMutexLocked = false;
+  let lastCommittedBillFingerprint = "";
+  let lastCommittedBillTs = 0;
+
+  let walStats = { committedCount: 0, recoveredCount: 0, lastTxType: "None", lastTxTime: "—" };
+  try {
+    const savedStats = JSON.parse(localStorage.getItem(WAL_HISTORY_KEY) || "null");
+    if (savedStats && typeof savedStats === "object") {
+      walStats = Object.assign(walStats, savedStats);
+    }
+  } catch (e) {}
+
+  function saveWalStats() {
+    try {
+      localStorage.setItem(WAL_HISTORY_KEY, JSON.stringify(walStats));
+    } catch (e) {}
+  }
+
+  function deepCloneState(arr) {
+    try {
+      return JSON.parse(JSON.stringify(Array.isArray(arr) ? arr : []));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function replaceArrayInPlace(targetArr, newItems) {
+    if (!Array.isArray(targetArr) || !Array.isArray(newItems)) return;
+    targetArr.length = 0;
+    newItems.forEach((x) => { if (x) targetArr.push(x); });
+  }
+
+  // Save active Billing Cart draft on every scan/input so if the phone battery dies
+  // after scanning 10 items, reopening the app restores the cart automatically!
+  function saveLiveCartDraft() {
+    if (txMutexLocked) return;
+    try {
+      const liveCart = (typeof cart !== "undefined" && Array.isArray(cart)) ? cart : [];
+      if (liveCart.length === 0) {
+        localStorage.removeItem(CART_DRAFT_KEY);
+        return;
+      }
+      const draft = {
+        ts: Date.now(),
+        cart: deepCloneState(liveCart),
+        custName: document.getElementById("custName")?.value || "",
+        custMobile: document.getElementById("custMobile")?.value || "",
+        custVillage: document.getElementById("custVillage")?.value || "",
+        accInput: document.getElementById("accInput")?.value || "",
+        paidInput: document.getElementById("paidInput")?.value || "",
+        payMode: document.getElementById("payMode")?.value || "Cash",
+        exchangeCredit: typeof activeExchangeCredit !== "undefined" ? activeExchangeCredit : 0,
+        exchangeRefInv: typeof activeExchangeRefInv !== "undefined" ? activeExchangeRefInv : ""
+      };
+      localStorage.setItem(CART_DRAFT_KEY, JSON.stringify(draft));
+    } catch (e) {}
+  }
+
+  function clearLiveCartDraft() {
+    try {
+      localStorage.removeItem(CART_DRAFT_KEY);
+    } catch (e) {}
+  }
+
+  function restoreLiveCartDraftOnBoot() {
+    try {
+      const raw = localStorage.getItem(CART_DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (!draft || !Array.isArray(draft.cart) || draft.cart.length === 0) return;
+
+      // Only restore if current cart is empty and draft is less than 24 hours old
+      if (typeof cart !== "undefined" && Array.isArray(cart) && cart.length === 0) {
+        if (Date.now() - (Number(draft.ts) || 0) > 24 * 60 * 60 * 1000) {
+          clearLiveCartDraft();
+          return;
+        }
+        draft.cart.forEach((item) => { if (item) cart.push(item); });
+
+        const cName = document.getElementById("custName");
+        const cMob = document.getElementById("custMobile");
+        const cVil = document.getElementById("custVillage");
+        const accEl = document.getElementById("accInput");
+        const paidEl = document.getElementById("paidInput");
+        const modeEl = document.getElementById("payMode");
+
+        if (cName && draft.custName) cName.value = draft.custName;
+        if (cMob && draft.custMobile) cMob.value = draft.custMobile;
+        if (cVil && draft.custVillage) cVil.value = draft.custVillage;
+        if (modeEl && draft.payMode) modeEl.value = draft.payMode;
+
+        if (typeof activeExchangeCredit !== "undefined" && draft.exchangeCredit) {
+          activeExchangeCredit = Number(draft.exchangeCredit) || 0;
+        }
+        if (typeof activeExchangeRefInv !== "undefined" && draft.exchangeRefInv) {
+          activeExchangeRefInv = String(draft.exchangeRefInv || "");
+        }
+
+        if (typeof renderCart === "function") renderCart();
+        if (accEl && draft.accInput) accEl.value = draft.accInput;
+        if (paidEl && draft.paidInput) paidEl.value = draft.paidInput;
+        if (typeof calcDue === "function") calcDue();
+
+        showCartRecoveryBanner(draft.cart.length);
+      }
+    } catch (e) {}
+  }
+
+  function showCartRecoveryBanner(itemCount) {
+    let banner = document.getElementById("shCartRecoveryBanner");
+    if (!banner) {
+      const billMsg = document.getElementById("billMsg");
+      if (billMsg && billMsg.parentElement) {
+        banner = document.createElement("div");
+        banner.id = "shCartRecoveryBanner";
+        billMsg.parentElement.insertBefore(banner, billMsg);
+      }
+    }
+    if (!banner) return;
+    banner.style.display = "flex";
+    banner.innerHTML =
+      `<span>🛡️ <b>Crash Recovery:</b> पिछला अधूरा बिल (${itemCount} आइटम) सुरक्षित वापस आ गया है!</span>` +
+      `<button type="button" style="margin:0;width:auto;padding:4px 9px;font-size:10.5px;background:#022c22;color:#6ee7b7;border:1px solid #34d399;border-radius:6px;font-weight:800;" onclick="dismissRecoveredCartDraft()">✕ Clear</button>`;
+  }
+
+  window.dismissRecoveredCartDraft = function() {
+    const banner = document.getElementById("shCartRecoveryBanner");
+    if (banner) banner.style.display = "none";
+    if (typeof cart !== "undefined" && Array.isArray(cart)) {
+      cart.length = 0;
+    }
+    clearLiveCartDraft();
+    if (typeof renderCart === "function") renderCart();
+  };
+
+  // Recover any interrupted Write-Ahead Journal (WAL) transaction on startup
+  function checkAndRecoverPendingWalOnBoot() {
+    try {
+      const rawWal = localStorage.getItem(WAL_KEY);
+      if (!rawWal) return;
+      const wal = JSON.parse(rawWal);
+      if (!wal || wal.status !== "BEGIN" || !wal.preState) {
+        localStorage.removeItem(WAL_KEY);
+        return;
+      }
+
+      // A transaction was interrupted mid-execution (before reaching COMMIT)!
+      // Roll back to the exact pre-transaction snapshot so partial stock deductions
+      // without a matching sale invoice are 100% reversed.
+      if (wal.preState.inventory && typeof inventory !== "undefined") {
+        replaceArrayInPlace(inventory, wal.preState.inventory);
+        localStorage.setItem("sc_inventory", JSON.stringify(inventory));
+      }
+      if (wal.preState.sales && typeof sales !== "undefined") {
+        replaceArrayInPlace(sales, wal.preState.sales);
+        localStorage.setItem("sc_sales", JSON.stringify(sales));
+      }
+      if (wal.preState.udhaarLogs && typeof udhaarLogs !== "undefined") {
+        replaceArrayInPlace(udhaarLogs, wal.preState.udhaarLogs);
+        localStorage.setItem("sc_udhaar_logs", JSON.stringify(udhaarLogs));
+      }
+      if (wal.preState.contacts && typeof contacts !== "undefined") {
+        replaceArrayInPlace(contacts, wal.preState.contacts);
+        localStorage.setItem("sc_contacts", JSON.stringify(contacts));
+      }
+      if (wal.preState.mandiBills && Array.isArray(window.mandiBills)) {
+        window.mandiBills = wal.preState.mandiBills;
+        localStorage.setItem("sc_mandi_bills", JSON.stringify(window.mandiBills));
+      }
+      if (wal.preState.mandiPayments && Array.isArray(window.mandiPayments)) {
+        window.mandiPayments = wal.preState.mandiPayments;
+        localStorage.setItem("sc_mandi_payments", JSON.stringify(window.mandiPayments));
+      }
+
+      localStorage.removeItem(WAL_KEY);
+      walStats.recoveredCount = (Number(walStats.recoveredCount) || 0) + 1;
+      walStats.lastTxType = "Auto-Rollback (" + (wal.txType || "TX") + ")";
+      walStats.lastTxTime = new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      saveWalStats();
+
+      if (typeof renderStock === "function") renderStock();
+      if (typeof renderStats === "function") renderStats();
+      if (typeof renderCustomerSection === "function") renderCustomerSection();
+    } catch (e) {
+      try { localStorage.removeItem(WAL_KEY); } catch (e2) {}
+    }
+  }
+
+  // Universal Atomic Transaction Executor:
+  // Snapshots state -> Writes WAL BEGIN -> Runs fn() -> Validates invariants -> Commits & Clears WAL
+  function runAtomicPosTransaction(txType, mutationFn) {
+    if (txMutexLocked) {
+      return;
+    }
+    txMutexLocked = true;
+
+    const preState = {
+      inventory: deepCloneState(typeof inventory !== "undefined" ? inventory : []),
+      sales: deepCloneState(typeof sales !== "undefined" ? sales : []),
+      udhaarLogs: deepCloneState(typeof udhaarLogs !== "undefined" ? udhaarLogs : []),
+      contacts: deepCloneState(typeof contacts !== "undefined" ? contacts : []),
+      mandiBills: deepCloneState(Array.isArray(window.mandiBills) ? window.mandiBills : []),
+      mandiPayments: deepCloneState(Array.isArray(window.mandiPayments) ? window.mandiPayments : [])
+    };
+
+    const walEntry = {
+      txId: "TX_" + Date.now(),
+      txType: txType,
+      status: "BEGIN",
+      ts: Date.now(),
+      preState: preState
+    };
+
+    try {
+      localStorage.setItem(WAL_KEY, JSON.stringify(walEntry));
+    } catch (e) {}
+
+    try {
+      const result = mutationFn();
+
+      // Post-transaction invariant check: ensure no NaN quantities or corrupted arrays
+      if (typeof inventory !== "undefined" && Array.isArray(inventory)) {
+        inventory.forEach((item) => {
+          if (item && (!Number.isFinite(Number(item.qty)) || Number(item.qty) < 0)) {
+            item.qty = Math.max(0, Number(item.qty) || 0);
+          }
+        });
+      }
+
+      // Commit successful! Clear WAL entry
+      try { localStorage.removeItem(WAL_KEY); } catch (e) {}
+      walStats.committedCount = (Number(walStats.committedCount) || 0) + 1;
+      walStats.lastTxType = txType;
+      walStats.lastTxTime = new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      saveWalStats();
+      refreshAtomicWalMonitorUI();
+      return result;
+    } catch (err) {
+      // Roll back all in-memory collections to preState on any exception!
+      if (typeof inventory !== "undefined") replaceArrayInPlace(inventory, preState.inventory);
+      if (typeof sales !== "undefined") replaceArrayInPlace(sales, preState.sales);
+      if (typeof udhaarLogs !== "undefined") replaceArrayInPlace(udhaarLogs, preState.udhaarLogs);
+      if (typeof contacts !== "undefined") replaceArrayInPlace(contacts, preState.contacts);
+      if (Array.isArray(window.mandiBills)) window.mandiBills = preState.mandiBills;
+      if (Array.isArray(window.mandiPayments)) window.mandiPayments = preState.mandiPayments;
+
+      try {
+        localStorage.setItem("sc_inventory", JSON.stringify(inventory));
+        localStorage.setItem("sc_sales", JSON.stringify(sales));
+        localStorage.setItem("sc_udhaar_logs", JSON.stringify(udhaarLogs));
+        localStorage.setItem("sc_contacts", JSON.stringify(contacts));
+        localStorage.removeItem(WAL_KEY);
+      } catch (e2) {}
+
+      walStats.recoveredCount = (Number(walStats.recoveredCount) || 0) + 1;
+      walStats.lastTxType = "Rolled Back (" + txType + ")";
+      walStats.lastTxTime = new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      saveWalStats();
+      refreshAtomicWalMonitorUI();
+
+      if (typeof showInlineMsg === "function") {
+        showInlineMsg("billMsg", "🛡️ Crash Guard: अधूरा बदलाव सुरक्षित रोलबैक हो गया। कृपया दोबारा प्रयास करें।", "error");
+      }
+    } finally {
+      setTimeout(() => { txMutexLocked = false; }, 350);
+    }
+  }
+
+  function installAtomicTransactionHooks() {
+    // 1. Wrap finalizeBill with Double-Tap Fingerprint Guard + Atomic WAL + Cart Draft Cleanup
+    if (typeof window.finalizeBill === "function" && !window.finalizeBill._atomicWalWrapped) {
+      const origFinalize = window.finalizeBill;
+      const wrappedFinalize = function() {
+        const liveCart = (typeof cart !== "undefined" && Array.isArray(cart)) ? cart : [];
+        if (liveCart.length === 0) {
+          return origFinalize();
+        }
+
+        // Fingerprint current cart + customer + payable to prevent accidental double-tap within 2.5s
+        const custMob = (document.getElementById("custMobile")?.value || "").trim();
+        const accVal = (document.getElementById("accInput")?.value || "").trim();
+        const fp = liveCart.map(c => (c.code + ":" + c.qty + ":" + c.mrp)).join("|") + "::" + custMob + "::" + accVal;
+        const now = Date.now();
+        if (fp === lastCommittedBillFingerprint && (now - lastCommittedBillTs) < 2500) {
+          if (typeof showInlineMsg === "function") {
+            showInlineMsg("billMsg", "🛡️ Duplicate Tap Blocked: यह बिल अभी-अभी सेव हो चुका है!", "success");
+          }
+          return;
+        }
+
+        const salesBeforeLen = (typeof sales !== "undefined" && Array.isArray(sales)) ? sales.length : 0;
+
+        runAtomicPosTransaction("BILL_SALE", () => {
+          origFinalize();
+        });
+
+        const salesAfterLen = (typeof sales !== "undefined" && Array.isArray(sales)) ? sales.length : 0;
+        if (salesAfterLen > salesBeforeLen) {
+          // Bill committed cleanly!
+          lastCommittedBillFingerprint = fp;
+          lastCommittedBillTs = Date.now();
+          clearLiveCartDraft();
+          const recBanner = document.getElementById("shCartRecoveryBanner");
+          if (recBanner) recBanner.style.display = "none";
+        }
+      };
+      wrappedFinalize._atomicWalWrapped = true;
+      window.finalizeBill = wrappedFinalize;
+    }
+
+    // 2. Wrap exchangeSelectedItems & exchangeReturnBill in Atomic WAL
+    if (typeof window.exchangeSelectedItems === "function" && !window.exchangeSelectedItems._atomicWalWrapped) {
+      const origExSel = window.exchangeSelectedItems;
+      const wrappedExSel = function(sendToNewBill) {
+        return runAtomicPosTransaction("ITEM_RETURN", () => origExSel(sendToNewBill));
+      };
+      wrappedExSel._atomicWalWrapped = true;
+      window.exchangeSelectedItems = wrappedExSel;
+    }
+
+    if (typeof window.exchangeReturnBill === "function" && !window.exchangeReturnBill._atomicWalWrapped) {
+      const origExFull = window.exchangeReturnBill;
+      const wrappedExFull = function() {
+        return runAtomicPosTransaction("FULL_BILL_RETURN", () => origExFull());
+      };
+      wrappedExFull._atomicWalWrapped = true;
+      window.exchangeReturnBill = wrappedExFull;
+    }
+
+    // 3. Wrap confirmUdhaarPayment & confirmMandiPayment in Atomic WAL
+    if (typeof window.confirmUdhaarPayment === "function" && !window.confirmUdhaarPayment._atomicWalWrapped) {
+      const origUdh = window.confirmUdhaarPayment;
+      const wrappedUdh = function(sendWa) {
+        return runAtomicPosTransaction("UDHAAR_JAMA", () => origUdh(sendWa));
+      };
+      wrappedUdh._atomicWalWrapped = true;
+      window.confirmUdhaarPayment = wrappedUdh;
+    }
+
+    if (typeof window.confirmMandiPayment === "function" && !window.confirmMandiPayment._atomicWalWrapped) {
+      const origMandiPay = window.confirmMandiPayment;
+      const wrappedMandiPay = function(sendWa) {
+        return runAtomicPosTransaction("MAHAJAN_PAY", () => origMandiPay(sendWa));
+      };
+      wrappedMandiPay._atomicWalWrapped = true;
+      window.confirmMandiPayment = wrappedMandiPay;
+    }
+
+    // 4. Subscribe to cart:rendered Event Bus for cart draft
+    if (window.onPosEvent && !window._walCartDraftSub) {
+      window._walCartDraftSub = true;
+      window.onPosEvent('cart:rendered', saveLiveCartDraft);
+    }
+    ["custName", "custMobile", "custVillage", "accInput", "paidInput", "payMode"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && !el._draftHooked) {
+        el.addEventListener("input", saveLiveCartDraft, { passive: true });
+        el.addEventListener("change", saveLiveCartDraft, { passive: true });
+        el._draftHooked = true;
+      }
+    });
+  }
+
+  function refreshAtomicWalMonitorUI() {
+    let box = document.getElementById("shAtomicWalMonitorBox");
+    if (!box) {
+      const backupMsg = document.getElementById("backupMsg");
+      if (backupMsg && backupMsg.parentElement) {
+        box = document.createElement("div");
+        box.id = "shAtomicWalMonitorBox";
+        backupMsg.parentElement.insertBefore(box, backupMsg);
+      }
+    }
+    if (!box) return;
+
+    const hasDraft = !!localStorage.getItem(CART_DRAFT_KEY);
+    box.innerHTML =
+      `<div class="sh-qv-head">` +
+        `<div class="sh-qv-title">⚡ Atomic WAL Transaction & Crash Shield</div>` +
+        `<span class="sh-qv-badge">${hasDraft ? "🟢 Live Cart Draft Saved" : "🟢 ACID Protected"}</span>` +
+      `</div>` +
+      `<div class="sh-qv-grid">` +
+        `<div class="sh-qv-chip"><span>✅ Atomic Commits</span><b>${walStats.committedCount}</b></div>` +
+        `<div class="sh-qv-chip"><span>🛡️ Crash Rollbacks</span><b>${walStats.recoveredCount}</b></div>` +
+        `<div class="sh-qv-chip"><span>🧾 Last Action</span><b>${walStats.lastTxType}</b></div>` +
+        `<div class="sh-qv-chip"><span>🕒 Committed At</span><b>${walStats.lastTxTime}</b></div>` +
+      `</div>`;
+  }
